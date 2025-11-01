@@ -385,8 +385,23 @@ class LightGBMPredictor:
                 return np.array([])
             
             # Prepare features
-            X, _ = self   
- def optimize_hyperparameters(self, X: np.ndarray, y: np.ndarray) -> Dict[str, Any]:
+            X, _ = self.prepare_features(df)
+            
+            if len(X) == 0:
+                logger.warning("No features available for prediction")
+                return np.array([])
+            
+            # Make predictions
+            predictions = self.model.predict(X)
+            logger.info(f"Made {len(predictions)} predictions")
+            
+            return predictions
+            
+        except Exception as e:
+            logger.error(f"Error in batch prediction: {str(e)}")
+            return np.array([])
+    
+    def optimize_hyperparameters(self, X: np.ndarray, y: np.ndarray) -> Dict[str, Any]:
         """
         Optimize LightGBM hyperparameters using grid search.
         

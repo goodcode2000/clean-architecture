@@ -21,17 +21,25 @@ from .config import Config
 
 logger = logging.getLogger(__name__)
 
-# Initialize FastAPI app
-app = FastAPI(title="BTC Price Prediction API")
+class BTCPredictionAPI:
+    def __init__(self, config: Config):
+        self.config = config
+        self.app = FastAPI(title="BTC Price Prediction API")
+        self.setup_cors()
+        self.setup_routes()
+        self.prediction_generator = None
 
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    def setup_cors(self):
+        self.app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+    def get_app(self):
+        return self.app
 
 # Pydantic models for API
 class PredictionResponse(BaseModel):
@@ -48,6 +56,38 @@ class PredictionResponse(BaseModel):
 class HistoricalDataResponse(BaseModel):
     timestamp: str
     open_price: float
+
+def create_api_server(config: Config) -> BTCPredictionAPI:
+    """Create and configure the API server"""
+    api = BTCPredictionAPI(config)
+    
+    @api.app.get("/health")
+    async def health_check():
+        return {"status": "healthy"}
+
+    @api.app.get("/predict")
+    async def get_prediction():
+        if not api.prediction_generator:
+            raise HTTPException(status_code=503, detail="Prediction service not initialized")
+        try:
+            prediction = await api.prediction_generator.get_latest_prediction()
+            return prediction
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @api.app.websocket("/ws")
+    async def websocket_endpoint(websocket: WebSocket):
+        await websocket.accept()
+        try:
+            while True:
+                if api.prediction_generator:
+                    prediction = await api.prediction_generator.get_latest_prediction()
+                    await websocket.send_json(prediction)
+                await asyncio.sleep(1)
+        except WebSocketDisconnect:
+            logger.info("WebSocket client disconnected")
+            
+    return api
     high_price: float
     low_price: float
     close_price: float

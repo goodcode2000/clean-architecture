@@ -592,6 +592,10 @@ class BTCPredictionAPI:
                 
         except Exception as e:
             logger.error(f"Model retraining error: {e}")
+
+    def get_app(self):
+        """Return the underlying FastAPI application instance."""
+        return self.app
     
     def run(self, host: str = "0.0.0.0", port: int = 8000):
         """Run the API server"""

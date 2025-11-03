@@ -25,11 +25,12 @@ class BTCPredictionAPI:
     def __init__(self, config: Config):
         self.config = config
         self.app = FastAPI(title="BTC Price Prediction API")
-        self.setup_cors()
-        self.setup_routes()
+        self._setup_middleware()
+        self._setup_routes()
         self.prediction_generator = None
 
-    def setup_cors(self):
+    def _setup_middleware(self):
+        """Configure CORS middleware"""
         self.app.add_middleware(
             CORSMiddleware,
             allow_origins=["*"],
@@ -38,7 +39,36 @@ class BTCPredictionAPI:
             allow_headers=["*"],
         )
 
+    def _setup_routes(self):
+        """Configure API routes"""
+        @self.app.get("/health")
+        async def health_check():
+            return {"status": "healthy"}
+        
+        @self.app.get("/predict")
+        async def get_prediction():
+            if not self.prediction_generator:
+                raise HTTPException(status_code=503, detail="Prediction service not initialized")
+            try:
+                prediction = await self.prediction_generator.get_latest_prediction()
+                return prediction
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.websocket("/ws")
+        async def websocket_endpoint(websocket: WebSocket):
+            await websocket.accept()
+            try:
+                while True:
+                    if self.prediction_generator:
+                        prediction = await self.prediction_generator.get_latest_prediction()
+                        await websocket.send_json(prediction)
+                    await asyncio.sleep(1)
+            except WebSocketDisconnect:
+                logger.info("WebSocket client disconnected")
+
     def get_app(self):
+        """Get the FastAPI application instance"""
         return self.app
 
 # Pydantic models for API
@@ -56,6 +86,24 @@ class PredictionResponse(BaseModel):
 class HistoricalDataResponse(BaseModel):
     timestamp: str
     open_price: float
+
+async def initialize(self):
+    """Initialize the API server"""
+    logger.info("Initializing BTC Prediction API server...")
+    try:
+        self.prediction_generator = PredictionGenerator(self.config)
+        await self.prediction_generator.initialize()
+        logger.info("BTC Prediction API server initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize API server: {e}")
+        raise
+
+async def shutdown(self):
+    """Shutdown the API server"""
+    logger.info("Shutting down BTC Prediction API server...")
+    if self.prediction_generator:
+        await self.prediction_generator.cleanup()
+    logger.info("BTC Prediction API server shutdown complete")
 
 def create_api_server(config: Config) -> BTCPredictionAPI:
     """Create and configure the API server"""

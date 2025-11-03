@@ -154,12 +154,14 @@ async def main():
     
     try:
         if args.mode == "api":
-            # For API-only mode, configure the server
+            # For API-only mode, use uvicorn directly
             logger.info(f"Starting API server on {args.host}:{args.port}")
-            import uvicorn
-            app = engine.api_server.get_app()
-            # Use uvicorn.run directly instead of asyncio.run
-            uvicorn.run(app, host=args.host, port=args.port)
+            api_server = engine.api_server
+            await api_server.initialize()
+            app = api_server.get_app()
+            config = uvicorn.Config(app=app, host=args.host, port=args.port)
+            server = uvicorn.Server(config)
+            await server.serve()
         else:
             # For other modes, use async startup
             await engine.start()

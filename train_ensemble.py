@@ -17,6 +17,7 @@ from ensemble_models import (
     TCNModel, CNNModel
 )
 from feature_engineering import FeatureEngineer
+import os
 
 
 class EnsembleTrainer:
@@ -31,6 +32,8 @@ class EnsembleTrainer:
         }
         self.weights = ENSEMBLE_WEIGHTS
         os.makedirs(MODEL_DIR, exist_ok=True)
+        # Residual correction model (LightGBM)
+        self.residual_model = LightGBMModel()
     
     def prepare_target(self, df):
         """
@@ -128,10 +131,89 @@ class EnsembleTrainer:
         except Exception as e:
             print(f"  CNN training failed: {e}")
         
-        # Evaluate on test set
+        # Evaluate on test set and train residual correction on train set
         print("\nEvaluating models on test set...")
         self.evaluate_models(test_data, available_features if 'available_features' in locals() else [])
         
+        # Train residual correction model on training segment
+        try:
+            print("\nTraining residual correction model...")
+            # Build per-model predictions for train_data
+            preds_train = {}
+            # ETS
+            try:
+                pred_ets_train = self.models['ets'].predict(steps=len(train_data))
+                preds_train['ets'] = pd.Series(pred_ets_train, index=train_data.index)
+            except:
+                preds_train['ets'] = pd.Series(train_data['close'].values, index=train_data.index)
+            # GARCH (approx)
+            try:
+                pred_garch_vol_train = self.models['garch'].predict(steps=len(train_data))
+                base_price = train_data['close'].iloc[0]
+                preds_train['garch'] = pd.Series(base_price * (1 + pred_garch_vol_train[:len(train_data)]), index=train_data.index)
+            except:
+                preds_train['garch'] = pd.Series(train_data['close'].values, index=train_data.index)
+            # LightGBM
+            try:
+                if 'available_features' in locals() and available_features:
+                    X_tr = train_data[available_features]
+                    mask_tr = np.isfinite(X_tr).all(axis=1)
+                    base = pd.Series(train_data['close'].values, index=train_data.index)
+                    vals = base.copy().astype(float).values
+                    pred_lgb_tr = self.models['lightgbm'].predict(X_tr[mask_tr])
+                    vals[mask_tr.values] = pred_lgb_tr
+                    preds_train['lightgbm'] = pd.Series(vals, index=train_data.index)
+                else:
+                    preds_train['lightgbm'] = pd.Series(train_data['close'].values, index=train_data.index)
+            except:
+                preds_train['lightgbm'] = pd.Series(train_data['close'].values, index=train_data.index)
+            # TCN/CNN (use rolling prediction approximation)
+            try:
+                vals_tcn = []
+                for i in range(len(train_data)):
+                    sub = train_data.iloc[:i+1]
+                    if len(sub) >= 60:
+                        vals_tcn.append(self.models['tcn'].predict(sub)[0])
+                    else:
+                        vals_tcn.append(sub['close'].iloc[-1])
+                preds_train['tcn'] = pd.Series(vals_tcn, index=train_data.index)
+            except:
+                preds_train['tcn'] = pd.Series(train_data['close'].values, index=train_data.index)
+            try:
+                vals_cnn = []
+                for i in range(len(train_data)):
+                    sub = train_data.iloc[:i+1]
+                    if len(sub) >= 30:
+                        vals_cnn.append(self.models['cnn'].predict(sub)[0])
+                    else:
+                        vals_cnn.append(sub['close'].iloc[-1])
+                preds_train['cnn'] = pd.Series(vals_cnn, index=train_data.index)
+            except:
+                preds_train['cnn'] = pd.Series(train_data['close'].values, index=train_data.index)
+
+            # Weighted ensemble on train
+            ensemble_train = sum(self.weights[k] * preds_train[k] for k in self.weights if k in preds_train)
+            total_w = sum(self.weights.values())
+            ensemble_train = ensemble_train / total_w if total_w > 0 else preds_train['lightgbm']
+
+            # Residual = target - ensemble
+            residual = (train_data['target_price'] - ensemble_train).astype(float)
+            # Train residual model on same features
+            if 'available_features' in locals() and available_features:
+                X_res = train_data[available_features]
+                mask_res = np.isfinite(X_res).all(axis=1) & np.isfinite(residual)
+                X_res = X_res[mask_res]
+                y_res = residual[mask_res]
+                if len(X_res) > 100:
+                    self.residual_model.fit(X_res, y_res, available_features)
+                    print("  Residual model trained")
+                else:
+                    print("  Skipped residual model (insufficient data)")
+            else:
+                print("  Skipped residual model (no features)")
+        except Exception as e:
+            print(f"  Residual training failed: {e}")
+
         # Save models
         print("\nSaving models...")
         self.save_models()
@@ -235,6 +317,12 @@ class EnsembleTrainer:
                 print(f"  Saved {model_name}")
             except Exception as e:
                 print(f"  Failed to save {model_name}: {e}")
+        # Save residual model separately
+        try:
+            self.residual_model.save(os.path.join(MODEL_DIR, "residual_model.pkl"))
+            print("  Saved residual model")
+        except Exception as e:
+            print(f"  Failed to save residual model: {e}")
     
     def load_models(self):
         """Load all trained models"""
@@ -248,6 +336,14 @@ class EnsembleTrainer:
                     print(f"  {model_name} not found")
             except Exception as e:
                 print(f"  Failed to load {model_name}: {e}")
+        # Load residual model
+        try:
+            res_path = os.path.join(MODEL_DIR, "residual_model.pkl")
+            if os.path.exists(res_path):
+                self.residual_model.load(res_path)
+                print("  Loaded residual model")
+        except Exception as e:
+            print(f"  Failed to load residual model: {e}")
 
 
 if __name__ == "__main__":

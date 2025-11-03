@@ -160,8 +160,12 @@ class BTCPricePredictorApp:
     
     def display_prediction(self, current_price, predictions):
         """Display prediction results in terminal"""
+        current_time = datetime.now()
+        prediction_target_time = current_time + timedelta(minutes=INTERVAL_MINUTES)
+        
         print("\n" + "=" * 70)
-        print(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Prediction Time: {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Prediction Target: {prediction_target_time.strftime('%Y-%m-%d %H:%M:%S')} (5 minutes later)")
         print("-" * 70)
         print(f"{'Current Real Price:':<30} ${current_price:>10.2f}")
         print("-" * 70)
@@ -171,6 +175,7 @@ class BTCPricePredictorApp:
             offset_stats = self.predictor.get_offset_statistics()
             
             print(f"{'Predicted Price (5 min):':<30} ${ensemble_pred:>10.2f}")
+            print(f"{'  (for ' + prediction_target_time.strftime('%H:%M:%S') + ')':<30}")
             print(f"{'Expected Change:':<30} ${ensemble_pred - current_price:>10.2f} ({predictions.get('price_change_pct', 0):>5.2f}%)")
             
             if predictions.get('rapid_change', False):

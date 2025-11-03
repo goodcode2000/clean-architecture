@@ -28,20 +28,49 @@ class FeatureEngineer:
             DataFrame with features added
         """
         data = df.copy()
+        # Ensure strictly 5-minute aligned index to avoid drift
+        if not data.index.inferred_type == 'datetime64':
+            data.index = pd.to_datetime(data.index)
+        data = data[~data.index.duplicated(keep='last')]
+        data = data.asfreq('5T', method='pad')
         
+        # Kalman-smoothed price (simple 1D filter)
+        def kalman_1d(series, process_var=1e-3, meas_var=1e-1):
+            x_est = []
+            x = series.iloc[0]
+            P = 1.0
+            Q = process_var
+            R = meas_var
+            for z in series:
+                # Predict
+                x = x
+                P = P + Q
+                # Update
+                K = P / (P + R)
+                x = x + K * (z - x)
+                P = (1 - K) * P
+                x_est.append(x)
+            return pd.Series(x_est, index=series.index)
+
+        data['kalman_close'] = kalman_1d(data['close'])
+
         # Price features
         data['returns'] = data['close'].pct_change()
         data['log_returns'] = np.log(data['close'] / data['close'].shift(1))
         data['price_change'] = data['close'].diff()
+        data['kalman_returns'] = data['kalman_close'].pct_change()
         data['high_low_ratio'] = data['high'] / data['low']
         data['close_open_ratio'] = data['close'] / data['open']
         
-        # Volatility features
+        # Volatility features (adaptive short + medium windows)
         data['volatility'] = data['returns'].rolling(window=20).std()
+        data['volatility_short'] = data['returns'].rolling(window=10).std()
         data['realized_volatility'] = data['returns'].abs().rolling(window=20).mean()
+        data['realized_volatility_short'] = data['returns'].abs().rolling(window=10).mean()
         
-        # RSI
+        # RSI (standard + short)
         data['rsi'] = ta.momentum.RSIIndicator(data['close'], window=self.rsi_period).rsi()
+        data['rsi_short'] = ta.momentum.RSIIndicator(data['close'], window=max(7, self.rsi_period//2)).rsi()
         
         # Bollinger Bands
         bb_indicator = ta.volatility.BollingerBands(
@@ -59,6 +88,9 @@ class FeatureEngineer:
         for period in self.ema_periods:
             data[f'ema_{period}'] = ta.trend.EMAIndicator(data['close'], window=period).ema_indicator()
             data[f'price_ema_{period}_ratio'] = data['close'] / data[f'ema_{period}']
+        # Very short EMA for micro-trend
+        data['ema_5'] = ta.trend.EMAIndicator(data['close'], window=5).ema_indicator()
+        data['price_ema_5_ratio'] = data['close'] / data['ema_5']
         
         # MACD
         macd = ta.trend.MACD(
@@ -73,7 +105,9 @@ class FeatureEngineer:
         
         # Volume features
         data['volume_ma'] = data['volume'].rolling(window=20).mean()
+        data['volume_ma_short'] = data['volume'].rolling(window=10).mean()
         data['volume_ratio'] = data['volume'] / data['volume_ma']
+        data['volume_ratio_short'] = data['volume'] / data['volume_ma_short']
         data['volume_price_trend'] = (data['volume'] * data['returns']).rolling(window=20).sum()
         
         # Trend classification
@@ -103,11 +137,11 @@ class FeatureEngineer:
     def get_feature_columns(self):
         """Get list of feature column names"""
         features = [
-            'returns', 'log_returns', 'price_change', 'high_low_ratio', 'close_open_ratio',
-            'volatility', 'realized_volatility', 'rsi',
+            'returns', 'log_returns', 'price_change', 'kalman_returns', 'high_low_ratio', 'close_open_ratio',
+            'volatility', 'volatility_short', 'realized_volatility', 'realized_volatility_short', 'rsi', 'rsi_short',
             'bb_upper', 'bb_lower', 'bb_middle', 'bb_width', 'bb_position',
             'macd', 'macd_signal', 'macd_diff',
-            'volume_ratio', 'volume_price_trend',
+            'volume_ratio', 'volume_ratio_short', 'volume_price_trend',
             'trend_up', 'trend_down', 'trend_neutral',
             'price_acceleration', 'price_spread', 'spread_ratio',
             'price_velocity', 'velocity_change',
@@ -117,6 +151,7 @@ class FeatureEngineer:
         # Add EMA features
         for period in self.ema_periods:
             features.extend([f'ema_{period}', f'price_ema_{period}_ratio'])
+        features.extend(['ema_5', 'price_ema_5_ratio', 'kalman_close'])
         
         return features
 

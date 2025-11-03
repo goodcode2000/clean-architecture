@@ -30,7 +30,7 @@ RETRAIN_HOURS = 24
 ROLLING_WINDOW_DAYS = 7
 
 # Prediction offset target
-TARGET_OFFSET_RANGE = (20, 50)  # USD
+TARGET_OFFSET_RANGE = (20, 100)  # USD
 
 # Feature engineering
 TECHNICAL_INDICATORS = {

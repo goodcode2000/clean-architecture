@@ -4,8 +4,8 @@ Ensemble predictor with offset tracking and correction
 import pandas as pd
 import numpy as np
 import os
-from datetime import datetime
-from config import MODEL_DIR, PREDICTIONS_FILE, ENSEMBLE_WEIGHTS
+from datetime import datetime, timedelta
+from config import MODEL_DIR, PREDICTIONS_FILE, ENSEMBLE_WEIGHTS, INTERVAL_MINUTES
 from ensemble_models import (
     ETSModelWrapper, GARCHModelWrapper, LightGBMModel,
     TCNModel, CNNModel
@@ -25,12 +25,13 @@ class EnsemblePredictor:
         }
         self.weights = ENSEMBLE_WEIGHTS
         self.load_models()
+        self.residual_model = LightGBMModel()
         
         # Initialize predictions file
         os.makedirs(os.path.dirname(PREDICTIONS_FILE), exist_ok=True)
         if not os.path.exists(PREDICTIONS_FILE):
             pd.DataFrame(columns=[
-                'timestamp', 'real_price', 'predicted_price', 'offset',
+                'timestamp', 'prediction_target_time', 'real_price', 'predicted_price', 'offset',
                 'rapid_change_predicted', 'model_ets', 'model_garch',
                 'model_lightgbm', 'model_tcn', 'model_cnn'
             ]).to_csv(PREDICTIONS_FILE, index=False)
@@ -46,6 +47,52 @@ class EnsemblePredictor:
                     print(f"Warning: {model_name} model not found")
             except Exception as e:
                 print(f"Warning: Failed to load {model_name}: {e}")
+        # Load residual model
+        try:
+            res_path = os.path.join(MODEL_DIR, "residual_model.pkl")
+            if os.path.exists(res_path):
+                self.residual_model.load(res_path)
+        except Exception as e:
+            print(f"Warning: Failed to load residual model: {e}")
+
+    def compute_online_weights(self):
+        """Compute online error-based weights from recent history"""
+        if not os.path.exists(PREDICTIONS_FILE):
+            return self.weights
+        try:
+            df = pd.read_csv(PREDICTIONS_FILE)
+            if len(df) < 20:
+                return self.weights
+            # Align realized future price: the next row's real_price is the outcome of previous prediction
+            df = df.copy()
+            df['real_future'] = df['real_price'].shift(-1)
+            recent = df.tail(150)
+            model_cols = ['model_ets','model_garch','model_lightgbm','model_tcn','model_cnn']
+            maes = {}
+            for col in model_cols:
+                if col in recent.columns:
+                    err = (recent[col] - recent['real_future']).abs()
+                    err = err.replace([np.inf, -np.inf], np.nan).dropna()
+                    if len(err) >= 10:
+                        maes[col] = err.mean()
+            if not maes:
+                return self.weights
+            # Inverse error weighting with floor to avoid explosion
+            inv = {k: 1.0 / max(v, 1e-6) for k, v in maes.items()}
+            # Map to model keys
+            w = {
+                'ets': inv.get('model_ets', 0.0),
+                'garch': inv.get('model_garch', 0.0),
+                'lightgbm': inv.get('model_lightgbm', 0.0),
+                'tcn': inv.get('model_tcn', 0.0),
+                'cnn': inv.get('model_cnn', 0.0)
+            }
+            total = sum(w.values())
+            if total == 0:
+                return self.weights
+            return {k: v/total for k, v in w.items()}
+        except Exception:
+            return self.weights
     
     def predict(self, data):
         """
@@ -115,11 +162,11 @@ class EnsemblePredictor:
         except:
             predictions['cnn'] = data['close'].iloc[-1]
         
-        # Weighted ensemble
-        ensemble_pred = 0
-        total_weight = 0
-        
-        for model_name, weight in self.weights.items():
+        # Weighted ensemble with online error-based weights
+        dynamic_weights = self.compute_online_weights()
+        ensemble_pred = 0.0
+        total_weight = 0.0
+        for model_name, weight in dynamic_weights.items():
             if model_name in predictions:
                 ensemble_pred += predictions[model_name] * weight
                 total_weight += weight
@@ -129,6 +176,30 @@ class EnsemblePredictor:
         else:
             ensemble_pred = data['close'].iloc[-1]
         
+        # Residual correction if model available
+        try:
+            feature_cols = self.feature_engineer.get_feature_columns()
+            available_features = [f for f in feature_cols if f in data.columns]
+            if hasattr(self.residual_model, 'model') and self.residual_model.model is not None and available_features:
+                X_last = data[available_features].iloc[-1:].values
+                if np.isfinite(X_last).all():
+                    residual_pred = float(self.residual_model.predict(X_last)[0])
+                    # Apply conservative residual correction (shrink)
+                    ensemble_pred = ensemble_pred + 0.6 * residual_pred
+        except Exception:
+            pass
+
+        # Clamp overly large jumps to reduce extreme offsets (based on recent volatility)
+        try:
+            recent_vol = float(data['realized_volatility_short'].iloc[-1]) if 'realized_volatility_short' in data.columns else float(data['volatility'].iloc[-1])
+            price_now = float(data['close'].iloc[-1])
+            max_jump = max(50.0, 3.0 * recent_vol * price_now)
+            delta = ensemble_pred - price_now
+            if abs(delta) > max_jump:
+                ensemble_pred = price_now + np.sign(delta) * max_jump
+        except Exception:
+            pass
+
         predictions['ensemble'] = ensemble_pred
         
         # Predict rapid change (if price change > 2%)
@@ -144,9 +215,12 @@ class EnsemblePredictor:
     def save_prediction(self, real_price, predicted_price, predictions_dict):
         """Save prediction to file for offset tracking"""
         offset = abs(real_price - predicted_price)
+        prediction_time = datetime.now()
+        prediction_target_time = prediction_time + timedelta(minutes=5)
         
         new_row = {
-            'timestamp': datetime.now(),
+            'timestamp': prediction_time,
+            'prediction_target_time': prediction_target_time,
             'real_price': real_price,
             'predicted_price': predicted_price,
             'offset': offset,

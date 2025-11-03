@@ -37,15 +37,24 @@ class PriceData:
         excluded_keys = {'timestamp', 'open_price', 'high_price', 'low_price', 'close_price', 'volume'}
         technical_indicators = {k: v for k, v in data.items() if k not in excluded_keys}
         
-        return cls(
-            timestamp=datetime.fromisoformat(data['timestamp']),
-            open_price=float(data['open_price']),
-            high_price=float(data['high_price']),
-            low_price=float(data['low_price']),
-            close_price=float(data['close_price']),
-            volume=float(data['volume']),
-            technical_indicators=technical_indicators
-        )
+        try:
+            # Handle different datetime formats
+            try:
+                ts = pd.to_datetime(data['timestamp'])
+            except ValueError:
+                ts = datetime.fromisoformat(data['timestamp'].replace('Z', '+00:00'))
+            
+            return cls(
+                timestamp=ts,
+                open_price=float(data['open_price']),
+                high_price=float(data['high_price']),
+                low_price=float(data['low_price']),
+                close_price=float(data['close_price']),
+                volume=float(data['volume']),
+                technical_indicators=technical_indicators
+            )
+        except Exception as e:
+            raise ValueError(f"Error parsing price data: {e}. Data: {data}")
 
 @dataclass
 class Prediction:

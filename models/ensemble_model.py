@@ -18,6 +18,7 @@ from models.svr_model import SVRPredictor
 from models.random_forest_model import RandomForestPredictor
 from models.lightgbm_model import LightGBMPredictor
 from models.lstm_model import LSTMPredictor
+from models.kalman_model import KalmanPredictor
 from services.feature_engineering import FeatureEngineer
 from services.preprocessing import DataPreprocessor
 
@@ -29,6 +30,7 @@ class EnsemblePredictor:
         self.models = {
             'ets': ETSPredictor(),
             'svr': SVRPredictor(),
+            'kalman': KalmanPredictor(),
             'random_forest': RandomForestPredictor(),
             'lightgbm': LightGBMPredictor(),
             'lstm': LSTMPredictor()

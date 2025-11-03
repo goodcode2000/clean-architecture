@@ -18,6 +18,7 @@ class Config:
     ENSEMBLE_WEIGHTS = {
         'ets': 0.15,
         'svr': 0.20,
+        'kalman': 0.05,
         'random_forest': 0.25,
         'lightgbm': 0.25,
         'lstm': 0.15

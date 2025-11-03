@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 import uuid
+import pandas as pd
 
 @dataclass
 class PriceData:

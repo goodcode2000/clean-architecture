@@ -8,6 +8,7 @@ import asyncio
 import logging
 import argparse
 import sys
+import uvicorn
 from datetime import datetime
 from src.prediction_generator import PredictionGenerator
 from src.api_server import create_api_server

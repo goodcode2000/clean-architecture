@@ -476,8 +476,8 @@ class PrecisionBTCPredictor:
     
     def start_api_server(self):
         """Start Flask API server"""
-        print("🚀 Starting Precision API server on port 80...")
-        self.app.run(host='0.0.0.0', port=80, debug=False, threaded=True)
+        print("🚀 Starting Precision API server on port 3001...")
+        self.app.run(host='0.0.0.0', port=3001, debug=False, threaded=True)
     
     def run(self):
         """Start the precision prediction system"""
@@ -495,7 +495,7 @@ class PrecisionBTCPredictor:
         api_thread.start()
         time.sleep(2)
         
-        print("✅ API Server: http://0.0.0.0:80")
+        print("✅ API Server: http://0.0.0.0:3001")
         print("✅ High-frequency data collection active")
         print("✅ Multi-model precision system ready")
         print("="*70)

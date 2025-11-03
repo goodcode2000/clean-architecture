@@ -17,6 +17,23 @@ from arch import arch_model
 import lightgbm as lgb
 from tensorflow import keras
 from tensorflow.keras import layers
+try:
+    # Enable GPU memory growth to avoid OOM issues on TensorFlow
+    import tensorflow as tf
+    gpus = tf.config.list_physical_devices('GPU')
+    for gpu in gpus:
+        try:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        except Exception:
+            pass
+    # Optional: enable mixed precision on GPUs (can speed up training)
+    try:
+        from tensorflow.keras import mixed_precision
+        mixed_precision.set_global_policy('mixed_float16')
+    except Exception:
+        pass
+except Exception:
+    pass
 from sklearn.preprocessing import StandardScaler
 import pickle
 import os

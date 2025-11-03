@@ -9,7 +9,20 @@ from typing import Dict, List, Tuple, Optional, Any
 from datetime import datetime
 import logging
 from arch import arch_model
-from arch.univariate import GARCH, EGARCH, GJR_GARCH
+# GJR_GARCH is not exposed in all versions of the `arch` package.
+# Guard the import so the module can still be imported when GJR_GARCH
+# symbol is not available in the installed `arch` version.
+try:
+    from arch.univariate import GARCH, EGARCH, GJR_GARCH
+except ImportError:
+    try:
+        from arch.univariate import GARCH, EGARCH
+        GJR_GARCH = None
+    except Exception:
+        # If even GARCH/EGARCH are unavailable, set them to None so
+        # importing the module doesn't raise and we can report errors
+        # at runtime when trying to use the functionality.
+        GARCH = EGARCH = GJR_GARCH = None
 from .base_model import BaseModel
 from ..feature_engineering import FeatureSet
 

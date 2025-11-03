@@ -21,6 +21,18 @@ from .config import Config
 
 logger = logging.getLogger(__name__)
 
+# Initialize FastAPI app
+app = FastAPI(title="BTC Price Prediction API")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Pydantic models for API
 class PredictionResponse(BaseModel):
     timestamp: str

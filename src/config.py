@@ -5,6 +5,10 @@ Configuration settings for the BTC Prediction Engine
 import os
 from dataclasses import dataclass
 from typing import Dict, Any
+import logging
+
+# Module logger
+logger = logging.getLogger(__name__)
 
 @dataclass
 class Config:

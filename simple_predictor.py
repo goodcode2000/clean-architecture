@@ -17,6 +17,11 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
 import warnings
 warnings.filterwarnings('ignore')
+import sys
+
+# Use project config for symbol selection
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from config.config import Config
 
 class SimpleBTCPredictor:
     def __init__(self):
@@ -91,7 +96,7 @@ class SimpleBTCPredictor:
         """Fetch current BTC price from Binance"""
         try:
             url = "https://api.binance.com/api/v3/ticker/price"
-            params = {"symbol": "BTCUSDT"}
+            params = {"symbol": Config.PRICE_SYMBOL}
             response = requests.get(url, params=params, timeout=10)
             
             if response.status_code == 200:

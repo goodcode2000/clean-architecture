@@ -10,6 +10,11 @@ import os
 import pandas as pd
 from datetime import datetime
 import requests
+import sys
+
+# Use project config for symbol selection
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from config.config import Config
 
 app = Flask(__name__)
 CORS(app)
@@ -18,7 +23,7 @@ def get_current_btc_price():
     """Get current BTC price from Binance"""
     try:
         url = "https://api.binance.com/api/v3/ticker/price"
-        params = {"symbol": "BTCUSDT"}
+        params = {"symbol": Config.PRICE_SYMBOL}
         response = requests.get(url, params=params, timeout=5)
         if response.status_code == 200:
             data = response.json()
@@ -32,7 +37,7 @@ def get_historical_data():
     try:
         url = "https://api.binance.com/api/v3/klines"
         params = {
-            "symbol": "BTCUSDT",
+            "symbol": Config.PRICE_SYMBOL,
             "interval": "1m",
             "limit": 300  # Last 5 hours
         }
@@ -130,7 +135,7 @@ def system_status():
         "is_running": True,
         "api_server": "Simple API - Port 5000",
         "precision_predictor": "Running separately",
-        "data_source": "Binance API",
+        "data_source": f"Binance / CoinGecko (symbol={Config.PRICE_SYMBOL})",
         "last_update": datetime.now().isoformat()
     })
 

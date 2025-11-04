@@ -21,11 +21,13 @@ class BTCDataCollector:
         self.data_dir = Config.DATA_DIR
         self.historical_days = Config.HISTORICAL_DAYS
         self.interval_minutes = Config.DATA_INTERVAL_MINUTES
+        self.price_symbol = getattr(Config, 'PRICE_SYMBOL', 'BTCUSD')
+        self.fallback_symbol = getattr(Config, 'BINANCE_FALLBACK_SYMBOL', 'BTCUSDT')
         
         # Ensure data directory exists
         os.makedirs(self.data_dir, exist_ok=True)
         
-    def get_binance_data(self, symbol: str = "BTCUSDT", limit: int = 1000) -> Optional[pd.DataFrame]:
+    def get_binance_data(self, symbol: str = None, limit: int = 1000, end_time_ms: int = None) -> Optional[pd.DataFrame]:
         """
         Fetch BTC price data from Binance API.
         
@@ -38,14 +40,21 @@ class BTCDataCollector:
         """
         try:
             endpoint = f"{self.binance_url}/klines"
+            if symbol is None:
+                symbol = self.price_symbol
+
             params = {
                 'symbol': symbol,
                 'interval': f'{self.interval_minutes}m',
                 'limit': limit
             }
+
+            # If an end_time is provided, request older klines ending at that time
+            if end_time_ms is not None:
+                params['endTime'] = int(end_time_ms)
             
-            logger.info(f"Fetching data from Binance: {symbol}")
-            response = requests.get(endpoint, params=params, timeout=10)
+            logger.info(f"Fetching data from Binance: {symbol} (limit={limit})")
+            response = requests.get(endpoint, params=params, timeout=15)
             response.raise_for_status()
             
             data = response.json()
@@ -74,7 +83,7 @@ class BTCDataCollector:
             return df
             
         except requests.exceptions.RequestException as e:
-            logger.error(f"Binance API request failed: {e}")
+            logger.error(f"Binance API request failed for symbol {symbol}: {e}")
             return None
         except Exception as e:
             logger.error(f"Error processing Binance data: {e}")
@@ -151,13 +160,34 @@ class BTCDataCollector:
         """
         try:
             endpoint = f"{self.binance_url}/ticker/price"
-            params = {'symbol': 'BTCUSDT'}
-            
-            response = requests.get(endpoint, params=params, timeout=5)
-            response.raise_for_status()
-            
-            data = response.json()
-            current_price = float(data['price'])
+            # Try configured symbol first, then fallback
+            symbols_to_try = [self.price_symbol, self.fallback_symbol]
+            for sym in symbols_to_try:
+                try:
+                    params = {'symbol': sym}
+                    response = requests.get(endpoint, params=params, timeout=5)
+                    response.raise_for_status()
+                    data = response.json()
+                    current_price = float(data['price'])
+                    logger.debug(f"Current BTC price from Binance ({sym}): ${current_price:,.2f}")
+                    return current_price
+                except Exception:
+                    logger.debug(f"Binance symbol {sym} not available or failed")
+
+            # If Binance failed for both symbols, try CoinGecko
+            try:
+                cg_endpoint = f"{self.coingecko_url}/simple/price"
+                cg_params = {'ids': 'bitcoin', 'vs_currencies': 'usd'}
+                resp = requests.get(cg_endpoint, params=cg_params, timeout=5)
+                resp.raise_for_status()
+                price = resp.json().get('bitcoin', {}).get('usd')
+                if price is not None:
+                    logger.debug(f"Current BTC price from CoinGecko: ${price:,.2f}")
+                    return float(price)
+            except Exception as e:
+                logger.error(f"CoinGecko current price failed: {e}")
+
+            raise RuntimeError("Failed to obtain current price from Binance and CoinGecko")
             
             logger.debug(f"Current BTC price: ${current_price:,.2f}")
             return current_price
@@ -192,8 +222,8 @@ class BTCDataCollector:
             except Exception as e:
                 logger.warning(f"Failed to load cached data: {e}")
         
-        # Calculate how many 5-minute intervals we need for 90 days
-        intervals_needed = (self.historical_days * 24 * 60) // self.interval_minutes
+    # Calculate how many 5-minute intervals we need for configured days
+    intervals_needed = (self.historical_days * 24 * 60) // self.interval_minutes
         
         # Binance has a limit of 1000 records per request
         max_per_request = 1000
@@ -206,24 +236,34 @@ class BTCDataCollector:
             if df is not None:
                 all_data.append(df)
         else:
-            # For more than 1000 intervals, we need multiple requests
+            # For more than 1000 intervals, fetch in paginated chunks using endTime
             logger.info(f"Need {intervals_needed} intervals, fetching in chunks")
-            
+
             # Start from current time and go backwards
-            end_time = int(time.time() * 1000)  # Current time in milliseconds
-            
-            for chunk in range(0, intervals_needed, max_per_request):
-                chunk_size = min(max_per_request, intervals_needed - chunk)
-                
-                # Calculate start time for this chunk
-                chunk_end_time = end_time - (chunk * self.interval_minutes * 60 * 1000)
-                
-                df = self.get_binance_data(limit=chunk_size)
-                if df is not None:
-                    all_data.append(df)
-                
-                # Rate limiting - wait between requests
-                time.sleep(0.1)
+            end_time_ms = int(time.time() * 1000)  # Current time in milliseconds
+            remaining = intervals_needed
+            attempts = 0
+
+            while remaining > 0 and attempts < 10000:
+                chunk_size = min(max_per_request, remaining)
+
+                df = self.get_binance_data(limit=chunk_size, end_time_ms=end_time_ms)
+                attempts += 1
+
+                if df is None or df.empty:
+                    logger.warning("Binance returned no data for requested chunk - stopping pagination")
+                    break
+
+                all_data.append(df)
+
+                # Update remaining and end_time_ms to fetch older data in next iteration
+                remaining -= len(df)
+                oldest_ts = int(df['timestamp'].min().timestamp() * 1000)
+                # Subtract one interval to avoid overlap
+                end_time_ms = oldest_ts - (self.interval_minutes * 60 * 1000)
+
+                # Small pause to respect rate limits
+                time.sleep(0.12)
         
         # If Binance failed, try CoinGecko as backup
         if not all_data:

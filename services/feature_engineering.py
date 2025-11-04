@@ -1,21 +1,38 @@
-"""Feature engineering module for BTC price prediction."""
+"""Enhanced feature engineering module for BTC price prediction with advanced market analysis."""
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Tuple
 from loguru import logger
 import sys
 import os
+import talib
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config.config import Config
+from data.market_data import MarketDataCollector
+from data.sentiment_data import SentimentCollector
+from data.technical_indicators import TechnicalIndicators
 
 class FeatureEngineer:
-    """Creates features for BTC price prediction models."""
+    """Creates enhanced features for BTC price prediction models."""
     
     def __init__(self):
-        self.technical_indicators = Config.TECHNICAL_INDICATORS
-        self.sequence_length = Config.LSTM_SEQUENCE_LENGTH
+        self.config = Config
+        self.technical_indicators = TechnicalIndicators()
+        self.market_data = MarketDataCollector()
+        self.sentiment_collector = SentimentCollector(Config)
+        self.sequence_length = Config.SEQUENCE_LENGTH
+        
+        # Initialize scalers for different feature groups
+        self.scalers = {
+            'price': MinMaxScaler(),
+            'technical': StandardScaler(),
+            'market_depth': MinMaxScaler(),
+            'derivatives': StandardScaler(),
+            'sentiment': StandardScaler()
+        }
         
     def calculate_bollinger_bands(self, df: pd.DataFrame, window: int = 20, num_std: float = 2) -> pd.DataFrame:
         """
@@ -245,6 +262,11 @@ class FeatureEngineer:
                 df[f'close_lag_{lag}'] = df['close'].shift(lag)
                 df[f'volume_lag_{lag}'] = df['volume'].shift(lag)
                 df[f'returns_lag_{lag}'] = df['returns'].shift(lag)
+                # Auxiliary feature lags (if present)
+                if 'sentiment' in df.columns:
+                    df[f'sentiment_lag_{lag}'] = df['sentiment'].shift(lag)
+                if 'market_depth' in df.columns:
+                    df[f'market_depth_lag_{lag}'] = df['market_depth'].shift(lag)
             
             # Rolling statistics
             windows = [5, 10, 20]
@@ -396,6 +418,21 @@ class FeatureEngineer:
             if 'volatility' in self.technical_indicators:
                 features_df = self.calculate_volatility_indicators(features_df)
             
+            # Ensure availability of auxiliary features: sentiment and market_depth.
+            # These are often provided by external data sources (social feeds, orderbook snapshots).
+            # If not present, create a safe proxy so downstream models can still train.
+            if 'sentiment' not in features_df.columns:
+                # Proxy sentiment: short-term mean of returns (smoothed momentum) as a weak sentiment signal
+                features_df['sentiment'] = features_df['returns'].rolling(window=20).mean().fillna(0.0)
+                logger.info("'sentiment' column not found — filled with returns-based proxy (rolling mean)")
+
+            if 'market_depth' not in features_df.columns:
+                # Proxy market_depth: use volume normalized by price range as a simple liquidity/depth proxy
+                eps = 1e-9
+                features_df['price_range'] = (features_df['high'] - features_df['low']) / (features_df['close'] + eps)
+                features_df['market_depth'] = (features_df['volume'] / (features_df['price_range'] + eps)).replace([np.inf, -np.inf], 0).fillna(0.0)
+                logger.info("'market_depth' column not found — filled with volume/price-range proxy")
+
             # Create lag features
             features_df = self.create_lag_features(features_df)
             
@@ -481,7 +518,10 @@ class FeatureEngineer:
             # Lag features
             'close_lag_1', 'close_lag_2', 'close_lag_5',
             'returns_lag_1', 'returns_lag_2',
-            
+            # Auxiliary features
+            'sentiment', 'market_depth',
+            'sentiment_lag_1', 'sentiment_lag_2',
+            'market_depth_lag_1',
             # Rolling statistics
             'close_mean_5', 'close_std_5', 'close_position_20',
             

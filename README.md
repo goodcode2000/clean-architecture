@@ -1,21 +1,56 @@
-# BTC Price Predictor - Standalone System
+# Enhanced BTC Price Predictor
 
-## 🚀 Complete BTC Price Prediction System
-Real-time Bitcoin price prediction with ML models and REST API.
+## 🚀 Advanced Cryptocurrency Price Prediction System
+A comprehensive Bitcoin price prediction system combining multiple data sources, advanced ML models, and real-time analysis.
 
-## Features
-- ✅ **Real-time BTC data** from Binance API
-- ✅ **ML predictions** every 5 minutes  
-- ✅ **REST API** for data access
-- ✅ **Automatic model training** and retraining
-- ✅ **Prediction accuracy tracking**
-- ✅ **CSV data export**
+## Core Features
+
+### 📊 Multi-Source Data Analysis
+- ✅ **Price Data**: OHLCV for BTC and correlated assets (ETH, BNB)
+- 🗣️ **Sentiment Analysis**: 
+  - News articles
+  - Twitter sentiment
+  - Reddit discussions
+- 📈 **Market Depth**: 
+  - Order book analysis
+  - Buy/sell imbalance
+  - Liquidity tracking
+- 💹 **Derivatives Data**:
+  - Funding rates
+  - Open interest
+  - Options data
+- 📉 **Technical Indicators**:
+  - Advanced indicators (RSI, MACD, BB)
+  - Volatility metrics (ATR, Yang-Zhang)
+  - Custom market signals
+
+### 🤖 Advanced Models
+1. **Enhanced LSTM**:
+   - Multi-head attention
+   - Feature-specific processing
+   - Uncertainty estimation
+   
+2. **GARCH Model**:
+   - Volatility forecasting
+   - Risk assessment
+   
+3. **LightGBM & Random Forest**:
+   - High-speed training
+   - Feature importance
+   
+4. **SVR with SHAP**:
+   - Dynamic feature importance
+   - Kernel-based learning
+   
+5. **Experimental Models**:
+   - Temporal Fusion Transformer
+   - RL Trading Agent
 
 ## Quick Start
 
 ### 1. Clone Repository
 ```bash
-git clone <your-repo-url>
+git clone clean-architecture
 cd btc-predictor-app
 ```
 
@@ -61,11 +96,45 @@ python simple_predictor.py
 - Port 80 access (for VPS deployment)
 
 ## Configuration
-The system works out-of-the-box with default settings:
-- **Data Source:** Binance BTCUSDT
-- **Prediction Interval:** 5 minutes
-- **Model:** RandomForest with auto-retraining
-- **API Port:** 80 (VPS) or 5000 (local)
+
+The system requires setup of various components:
+
+### Data Sources
+- **Price Data:** 
+  - Primary: Binance (BTC/USDT)
+  - Secondary: Correlated pairs (ETH/USDT, BNB/USDT)
+  - Fallback: CoinGecko API
+
+### API Keys
+Required in `.env` file:
+```env
+NEWS_API_KEY=your_key_here
+TWITTER_API_KEY=your_key_here
+TWITTER_API_SECRET=your_key_here
+REDDIT_CLIENT_ID=your_id_here
+REDDIT_CLIENT_SECRET=your_secret_here
+```
+
+### Model Settings
+```python
+# In config/config.py
+ENSEMBLE_WEIGHTS = {
+    'lstm': 0.30,
+    'garch': 0.15,
+    'svr': 0.15,
+    'random_forest': 0.20,
+    'lightgbm': 0.20
+}
+
+# Feature Groups
+FEATURE_GROUPS = {
+    'price': ['open', 'high', 'low', 'close', 'volume'],
+    'technical': TECHNICAL_INDICATORS,
+    'market_depth': ['bid_sum', 'ask_sum', 'imbalance'],
+    'derivatives': ['funding_rate', 'open_interest'],
+    'sentiment': ['sentiment_score', 'sentiment_magnitude']
+}
+```
 
 ## Deployment on VPS
 ```bash

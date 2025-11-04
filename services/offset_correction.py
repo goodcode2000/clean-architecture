@@ -23,7 +23,7 @@ class OffsetCorrectionSystem:
         # Error tracking
         self.prediction_errors = {
             'ensemble': deque(maxlen=1000),
-            'ets': deque(maxlen=1000),
+            'garch': deque(maxlen=1000),
             'svr': deque(maxlen=1000),
             'random_forest': deque(maxlen=1000),
             'lightgbm': deque(maxlen=1000),
@@ -33,7 +33,7 @@ class OffsetCorrectionSystem:
         # Bias corrections
         self.bias_corrections = {
             'ensemble': 0.0,
-            'ets': 0.0,
+            'garch': 0.0,
             'svr': 0.0,
             'random_forest': 0.0,
             'lightgbm': 0.0,
@@ -43,7 +43,7 @@ class OffsetCorrectionSystem:
         # Adaptive learning rates
         self.learning_rates = {
             'ensemble': 0.1,
-            'ets': 0.05,
+            'garch': 0.05,
             'svr': 0.1,
             'random_forest': 0.1,
             'lightgbm': 0.1,
@@ -140,7 +140,7 @@ class OffsetCorrectionSystem:
         try:
             base_rates = {
                 'ensemble': 0.1,
-                'ets': 0.05,
+                'garch': 0.05,
                 'svr': 0.1,
                 'random_forest': 0.1,
                 'lightgbm': 0.1,

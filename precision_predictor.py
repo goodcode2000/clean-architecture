@@ -18,6 +18,11 @@ from sklearn.preprocessing import StandardScaler, RobustScaler
 from sklearn.metrics import mean_absolute_error
 import warnings
 warnings.filterwarnings('ignore')
+import sys
+
+# Use config symbol
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from config.config import Config
 
 class PrecisionBTCPredictor:
     def __init__(self):
@@ -127,7 +132,7 @@ class PrecisionBTCPredictor:
             # Get detailed price data
             url = "https://api.binance.com/api/v3/klines"
             params = {
-                "symbol": "BTCUSDT",
+                "symbol": Config.PRICE_SYMBOL,
                 "interval": "1m",
                 "limit": 1
             }

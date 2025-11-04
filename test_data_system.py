@@ -75,7 +75,7 @@ def test_data_system():
         test_prediction = current_price * 1.01  # Predict 1% increase
         confidence = (current_price * 0.99, current_price * 1.03)
         model_contributions = {
-            'ets': current_price * 1.005,
+            'garch': current_price * 1.005,
             'svr': current_price * 1.01,
             'random_forest': current_price * 1.015,
             'lightgbm': current_price * 1.008,

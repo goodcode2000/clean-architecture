@@ -9,6 +9,7 @@ import sys
 from sklearn.svm import SVR
 from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
 from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.inspection import permutation_importance
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -32,6 +33,7 @@ class SVRPredictor:
         }
         self.best_params = None
         self.training_score = None
+    self.feature_importance = {}
         
     def prepare_features(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -196,6 +198,31 @@ class SVRPredictor:
         except Exception as e:
             logger.error(f"SVR training failed: {e}")
             return False
+
+        finally:
+            # After training, compute dynamic feature importance: try SHAP first, else use permutation importance
+            try:
+                import shap
+                logger.info('Computing SHAP values for SVR (this may be slow)')
+                # Use a KernelExplainer for model-agnostic SHAP values (approximate)
+                background = X[np.random.choice(len(X), min(100, len(X)), replace=False)]
+                explainer = shap.KernelExplainer(self.model.predict, background)
+                shap_vals = explainer.shap_values(X[:min(200, len(X))])
+                # Average absolute SHAP values across samples
+                mean_abs_shap = np.mean(np.abs(shap_vals), axis=0)
+                mean_abs_shap = mean_abs_shap / (np.sum(mean_abs_shap) + 1e-12)
+                self.feature_importance = {self.feature_columns[i]: float(mean_abs_shap[i]) for i in range(len(self.feature_columns))}
+                logger.info('SHAP feature importance computed for SVR')
+            except Exception:
+                try:
+                    logger.info('SHAP not available or failed; using permutation importance as fallback')
+                    perm = permutation_importance(self.model, X, y, n_repeats=5, random_state=42, n_jobs=1)
+                    scores = perm.importances_mean
+                    scores = scores / (np.sum(scores) + 1e-12)
+                    self.feature_importance = {self.feature_columns[i]: float(scores[i]) for i in range(len(self.feature_columns))}
+                except Exception as e:
+                    logger.warning(f'Failed to compute feature importance for SVR: {e}')
+                    self.feature_importance = {}
     
     def predict(self, df: pd.DataFrame) -> Tuple[float, Tuple[float, float]]:
         """

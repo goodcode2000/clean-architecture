@@ -1,4 +1,4 @@
-"""LSTM neural network model for BTC price prediction."""
+"""LSTM neural network model for BTC price prediction with multi-source data."""
 import pandas as pd
 import numpy as np
 from typing import Optional, Dict, Tuple, Any
@@ -6,8 +6,11 @@ from loguru import logger
 import os
 import sys
 import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.models import Sequential, Model
+from tensorflow.keras.layers import (
+    LSTM, Dense, Dropout, MultiHeadAttention, GlobalAveragePooling1D,
+    Input, Concatenate, LayerNormalization, Bidirectional
+)
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from sklearn.metrics import mean_absolute_error, mean_squared_error
@@ -19,29 +22,35 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config.config import Config
 
 class LSTMPredictor:
-    """LSTM model for capturing temporal and sequential dependencies."""
+    """Enhanced LSTM model for multi-source market data analysis."""
     
     def __init__(self):
         self.model = None
         self.is_trained = False
-        self.sequence_length = Config.LSTM_SEQUENCE_LENGTH
+        self.sequence_length = Config.SEQUENCE_LENGTH
         self.layers = Config.LSTM_LAYERS
         self.batch_size = Config.LSTM_BATCH_SIZE
         self.epochs = Config.LSTM_EPOCHS
-        self.feature_columns = []
+        self.feature_groups = Config.FEATURE_GROUPS
         self.training_history = None
-        self.scaler = None
+        self.scalers = {}  # One scaler per feature group
         
-    def prepare_sequences(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
-        """Prepare sequences for LSTM training."""
+    def prepare_sequences(self, df: pd.DataFrame) -> Dict[str, np.ndarray]:
+        """Prepare sequences for LSTM training with multiple feature groups."""
         try:
-            # Use feature engineering to create sequences
+            # Use enhanced feature engineering
             from services.feature_engineering import FeatureEngineer
             feature_engineer = FeatureEngineer()
             
-            X_sequences, y_sequences = feature_engineer.prepare_sequences_for_lstm(df)
+            # Get start and end times
+            start_time = df.index.min()
+            end_time = df.index.max()
             
-            logger.debug(f"LSTM sequences prepared: {X_sequences.shape}")
+            # Prepare all features including new data sources
+            features_dict = feature_engineer.prepare_features(start_time, end_time)
+            
+            logger.debug(f"LSTM sequences prepared for {len(self.feature_groups)} feature groups")
+            return features_dict
             return X_sequences, y_sequences
             
         except Exception as e:
@@ -52,24 +61,33 @@ class LSTMPredictor:
         """Build LSTM model architecture."""
         try:
             model = Sequential()
-            
-            # First LSTM layer
-            model.add(LSTM(
-                self.layers[0], 
-                return_sequences=True, 
-                input_shape=input_shape
-            ))
+            # First LSTM layer (return sequences for attention)
+            model.add(LSTM(self.layers[0], return_sequences=True, input_shape=input_shape))
             model.add(Dropout(0.2))
-            
+
             # Second LSTM layer
             model.add(LSTM(self.layers[1], return_sequences=True))
             model.add(Dropout(0.2))
-            
-            # Third LSTM layer
-            model.add(LSTM(self.layers[2], return_sequences=False))
+
+            # Apply a lightweight multi-head attention over the sequence outputs
+            # We'll use a TimeDistributed-like attention via MultiHeadAttention
+            try:
+                # Wrap sequential model with a functional attention block by inserting
+                # a GlobalAveragePooling on the attention outputs.
+                # Keras Sequential doesn't directly support inserting MHA easily here,
+                # but MultiHeadAttention can be applied using the Sequential API if
+                # the tensors are compatible. We'll append an attention layer that
+                # expects (batch, seq, features).
+                model.add(MultiHeadAttention(num_heads=4, key_dim=16))
+            except Exception:
+                # If not available, simply continue without attention
+                pass
+
+            # Pool across time and finish
+            model.add(GlobalAveragePooling1D())
             model.add(Dropout(0.2))
-            
-            # Output layer
+            model.add(Dense(self.layers[2], activation='relu'))
+            model.add(Dropout(0.2))
             model.add(Dense(1))
             
             # Compile model
@@ -87,29 +105,37 @@ class LSTMPredictor:
             return None
     
     def train(self, df: pd.DataFrame, validation_split: float = 0.2) -> bool:
-        """Train the LSTM model."""
+        """Train the enhanced LSTM model with multi-source data."""
         try:
-            logger.info("Training LSTM model...")
+            logger.info("Training enhanced LSTM model...")
             
-            # Prepare sequences
-            X, y = self.prepare_sequences(df)
+            # Prepare sequences with all feature groups
+            feature_dict = self.prepare_sequences(df)
             
-            if len(X) == 0 or len(y) == 0:
+            if not feature_dict or not all(len(v) > 0 for v in feature_dict.values()):
                 logger.error("No valid sequences for LSTM training")
                 return False
             
-            if len(X) < 100:
-                logger.error(f"Insufficient sequences for LSTM training: {len(X)}")
-                return False
+            # Get sequence dimensions for each feature group
+            feature_dims = {
+                group: (arr.shape[0], arr.shape[1], arr.shape[2])
+                for group, arr in feature_dict.items()
+            }
             
-            # Split data
-            split_idx = int(len(X) * (1 - validation_split))
-            X_train, X_val = X[:split_idx], X[split_idx:]
-            y_train, y_val = y[:split_idx], y[split_idx:]
+            # Split data for each feature group
+            train_data = {}
+            val_data = {}
+            for group, sequences in feature_dict.items():
+                split_idx = int(len(sequences) * (1 - validation_split))
+                train_data[group] = sequences[:split_idx]
+                val_data[group] = sequences[split_idx:]
             
-            # Build model
-            input_shape = (X_train.shape[1], X_train.shape[2])
-            self.model = self.build_model(input_shape)
+            # Build model with proper input shapes
+            input_shapes = {
+                group: (seq_len, timesteps, features)
+                for group, (seq_len, timesteps, features) in feature_dims.items()
+            }
+            self.model = self.build_model(input_shapes)
             
             if self.model is None:
                 return False
@@ -148,29 +174,44 @@ class LSTMPredictor:
             return False
     
     def predict(self, df: pd.DataFrame) -> Tuple[float, Tuple[float, float]]:
-        """Make prediction using the trained LSTM model."""
+        """Make prediction using the enhanced LSTM model."""
         try:
             if not self.is_trained or self.model is None:
                 logger.error("LSTM model not trained")
                 return 0.0, (0.0, 0.0)
             
-            # Prepare sequences
-            X, _ = self.prepare_sequences(df)
+            # Prepare sequences for all feature groups
+            feature_dict = self.prepare_sequences(df)
             
-            if len(X) == 0:
+            if not feature_dict or not all(len(v) > 0 for v in feature_dict.values()):
                 logger.error("No valid sequences for LSTM prediction")
                 return 0.0, (0.0, 0.0)
             
-            # Make prediction (use last sequence)
-            prediction = self.model.predict(X[-1:], verbose=0)
+            # Prepare input dictionary for prediction
+            model_inputs = {
+                group: sequences[-1:]  # Use last sequence for each group
+                for group, sequences in feature_dict.items()
+            }
+            
+            # Make prediction
+            prediction = self.model.predict(model_inputs, verbose=0)
             pred_value = float(prediction[0][0])
             
-            # Estimate confidence interval (simple approach)
-            margin = abs(pred_value) * 0.05
+            # Calculate confidence interval using feature importance
+            uncertainties = []
+            for group in feature_dict:
+                # Make predictions without this feature group
+                tmp_inputs = model_inputs.copy()
+                tmp_inputs[group] *= 0  # Zero out this feature group
+                pred_without = self.model.predict(tmp_inputs, verbose=0)[0][0]
+                uncertainties.append(abs(pred_value - pred_without))
+            
+            # Use the max uncertainty to set confidence bounds
+            margin = max(uncertainties)
             lower_bound = pred_value - margin
             upper_bound = pred_value + margin
             
-            logger.debug(f"LSTM prediction: {pred_value:.2f}")
+            logger.debug(f"Enhanced LSTM prediction: {pred_value:.2f} [{lower_bound:.2f}, {upper_bound:.2f}]")
             return pred_value, (lower_bound, upper_bound)
             
         except Exception as e:

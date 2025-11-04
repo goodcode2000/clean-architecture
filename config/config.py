@@ -1,4 +1,4 @@
-"""Configuration settings for BTC Predictor."""
+"""Configuration settings for BTC Predictor with advanced market data analysis."""
 import os
 from dotenv import load_dotenv
 
@@ -9,19 +9,37 @@ class Config:
     BINANCE_API_URL = "https://api.binance.com/api/v3"
     COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
     
+    # API Keys (set from environment variables)
+    NEWS_API_KEY = os.getenv('NEWS_API_KEY', '')
+    TWITTER_API_KEY = os.getenv('TWITTER_API_KEY', '')
+    TWITTER_API_SECRET = os.getenv('TWITTER_API_SECRET', '')
+    REDDIT_CLIENT_ID = os.getenv('REDDIT_CLIENT_ID', '')
+    REDDIT_CLIENT_SECRET = os.getenv('REDDIT_CLIENT_SECRET', '')
+    REDDIT_USER_AGENT = 'BTCPredictor/1.0'
+    
     # Data Configuration
     DATA_INTERVAL_MINUTES = 5
-    HISTORICAL_DAYS = 90
+    HISTORICAL_DAYS = 18 * 30  # 18 months of data
+    
+    # Trading Pairs Configuration
+    PRICE_SYMBOL = os.getenv('PRICE_SYMBOL', 'BTCUSDT')
+    BINANCE_FALLBACK_SYMBOL = os.getenv('BINANCE_FALLBACK_SYMBOL', 'BTCUSDT')
+    CORRELATED_PAIRS = ['ETHUSDT', 'BNBUSDT']  # Correlated assets
+    
+    # Prediction Configuration
     PREDICTION_HORIZON_MINUTES = 5
+    SEQUENCE_LENGTH = 48  # Hours of data for sequence models
     
     # Model Configuration
+    # Replace ETS with a volatility-aware GARCH model; add TFT as experimental (weight 0 by default)
     ENSEMBLE_WEIGHTS = {
-        'ets': 0.15,
+        'garch': 0.15,
         'svr': 0.20,
         'kalman': 0.05,
         'random_forest': 0.25,
         'lightgbm': 0.25,
-        'lstm': 0.15
+        'lstm': 0.10,
+        'tft': 0.0
     }
     
     # LSTM Configuration
@@ -32,12 +50,37 @@ class Config:
     
     # Feature Engineering
     TECHNICAL_INDICATORS = [
-        'bollinger_bands',
-        'rsi',
-        'macd',
-        'moving_averages',
-        'volatility'
+        # Trend Indicators
+        'sma_20', 'sma_50', 'sma_200',
+        'ema_12', 'ema_26',
+        'macd', 'macd_signal', 'macd_hist',
+        # Momentum Indicators
+        'rsi', 'mfi', 'cci', 'roc',
+        # Volatility Indicators
+        'atr', 'bbands_upper', 'bbands_middle', 'bbands_lower',
+        'garman_klass_vol', 'parkinson_vol', 'yang_zhang_vol',
+        # Volume Indicators
+        'obv', 'adl'
     ]
+    
+    # Feature Groups
+    FEATURE_GROUPS = {
+        'price': ['open', 'high', 'low', 'close', 'volume'],
+        'technical': TECHNICAL_INDICATORS,
+        'market_depth': ['bid_sum', 'ask_sum', 'imbalance'],
+        'derivatives': ['funding_rate', 'open_interest'],
+        'sentiment': ['sentiment_score', 'sentiment_magnitude']
+    }
+    
+    # Market Depth Configuration
+    MARKET_DEPTH_LEVELS = 100  # Number of order book levels
+    
+    # Sentiment Analysis Weights
+    SENTIMENT_WEIGHTS = {
+        'news': 0.4,
+        'twitter': 0.3,
+        'reddit': 0.3
+    }
     
     # Training Configuration
     RETRAIN_INTERVAL_HOURS = 6

@@ -1,0 +1,143 @@
+    def update_weights(self, actual_price: float) -> None:
+        """Update model weights based on recent performance."""
+        try:
+            if not self.predictions_history:
+                return
+
+            # Get the most recent predictions
+            latest_predictions = self.predictions_history[-1]
+
+            # Store actual price for performance tracking
+            self.actual_prices.append(actual_price)
+
+            # Get current market volatility
+            current_vol = self.volatility_history[-1] if self.volatility_history else 0.0
+
+            # Update weight adjuster with new performance data
+            self.weight_adjuster.update_errors(
+                latest_predictions,
+                actual_price,
+                current_vol
+            )
+
+            # Adjust weights based on performance and market conditions
+            self.weights = self.weight_adjuster.adjust_weights()
+
+            # Keep history within window size
+            window = self.weight_adjuster.window_size
+            self.predictions_history = self.predictions_history[-window:]
+            self.actual_prices = self.actual_prices[-window:]
+            self.volatility_history = self.volatility_history[-window:]
+
+            # Log weight adjustments
+            logger.info("Model weights updated:")
+            for model, weight in self.weights.items():
+                logger.info(f"  {model}: {weight:.3f}")
+
+        except Exception as e:
+            logger.error(f"Failed to update weights: {e}")
+
+    def get_model_performance(self) -> Dict[str, Any]:
+        """Get detailed performance metrics for each model."""
+        try:
+            performance = {}
+
+            for model_name in self.models.keys():
+                model_errors = []
+                for preds, actual in zip(self.predictions_history, self.actual_prices):
+                    if model_name in preds:
+                        error = abs(preds[model_name] - actual) / actual
+                        model_errors.append(error)
+
+                if model_errors:
+                    mean_error = np.mean(model_errors)
+                    std_error = np.std(model_errors)
+                    error_trend = np.polyfit(range(len(model_errors)), model_errors, 1)[0]
+
+                    performance[model_name] = {
+                        'mean_error': mean_error,
+                        'std_error': std_error,
+                        'error_trend': error_trend,
+                        'current_weight': self.weights.get(model_name, 0),
+                        'recent_errors': model_errors[-5:],  # Last 5 predictions
+                        'best_streak': self._get_best_streak(model_errors)
+                    }
+
+            return performance
+
+        except Exception as e:
+            logger.error(f"Failed to get model performance: {e}")
+            return {}
+
+    def _get_best_streak(self, errors: List[float], threshold: float = 0.01) -> int:
+        """Calculate the longest streak of good predictions (error < threshold)."""
+        try:
+            current_streak = 0
+            best_streak = 0
+
+            for error in errors:
+                if error < threshold:
+                    current_streak += 1
+                    best_streak = max(best_streak, current_streak)
+                else:
+                    current_streak = 0
+
+            return best_streak
+
+        except Exception:
+            return 0
+
+    def reset_weights(self) -> None:
+        """Reset weights to base configuration."""
+        try:
+            self.weight_adjuster.reset_weights()
+            self.weights = self.weight_adjuster.get_current_weights()
+            self.predictions_history = []
+            self.actual_prices = []
+            self.volatility_history = []
+            logger.info("Model weights reset to base configuration")
+
+        except Exception as e:
+            logger.error(f"Failed to reset weights: {e}")
+
+    def get_weight_adjustment_metrics(self) -> Dict[str, Any]:
+        """Get metrics about weight adjustments over time."""
+        try:
+            metrics = {}
+            
+            # Calculate weight stability
+            weight_history = []
+            for predictions, actual in zip(self.predictions_history, self.actual_prices):
+                self.weight_adjuster.update_errors(predictions, actual, 0.0)
+                weights = self.weight_adjuster.get_current_weights()
+                weight_history.append(weights)
+
+            if weight_history:
+                # Calculate weight volatility
+                weight_volatility = {}
+                for model in self.models.keys():
+                    weights = [w.get(model, 0) for w in weight_history]
+                    weight_volatility[model] = float(np.std(weights))
+
+                # Calculate weight trends
+                weight_trends = {}
+                for model in self.models.keys():
+                    weights = [w.get(model, 0) for w in weight_history]
+                    if len(weights) > 1:
+                        trend = np.polyfit(range(len(weights)), weights, 1)[0]
+                        weight_trends[model] = float(trend)
+                    else:
+                        weight_trends[model] = 0.0
+
+                metrics = {
+                    'weight_volatility': weight_volatility,
+                    'weight_trends': weight_trends,
+                    'current_weights': self.weights,
+                    'base_weights': self.weight_adjuster.base_weights
+                }
+
+            return metrics
+
+        except Exception as e:
+            logger.error(f"Failed to get weight adjustment metrics: {e}")
+            return {}

@@ -85,9 +85,11 @@ class BTCDataStorage:
                 if future_records.any():
                     issues.append(f"Future timestamps found: {future_records.sum()} records")
                 
-                old_records = df['timestamp'] < (now - timedelta(days=365))
+                # Allow data up to the configured historical period (18 months = 540 days)
+                max_age_days = Config.HISTORICAL_DAYS + 30  # Add 30 day buffer
+                old_records = df['timestamp'] < (now - timedelta(days=max_age_days))
                 if old_records.any():
-                    issues.append(f"Very old timestamps (>1 year): {old_records.sum()} records")
+                    issues.append(f"Very old timestamps (>{max_age_days} days): {old_records.sum()} records")
         
         except Exception as e:
             issues.append(f"Validation error: {str(e)}")
@@ -173,11 +175,16 @@ class BTCDataStorage:
                     logger.warning(f"Data validation issues: {issues}")
                     df = self.clean_price_data(df)
                     
-                    # Re-validate after cleaning
+                    # Re-validate after cleaning (allow warnings for old data)
                     is_valid, issues = self.validate_price_data(df)
                     if not is_valid:
-                        logger.error(f"Data still invalid after cleaning: {issues}")
-                        return False
+                        # Check if issues are only about old timestamps (which we can allow)
+                        critical_issues = [issue for issue in issues if not issue.startswith("Very old timestamps")]
+                        if critical_issues:
+                            logger.error(f"Data has critical issues after cleaning: {critical_issues}")
+                            return False
+                        else:
+                            logger.warning(f"Data has non-critical issues (proceeding): {issues}")
             
             # Save to CSV
             df.to_csv(self.historical_file, index=False)

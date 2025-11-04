@@ -189,9 +189,6 @@ class BTCDataCollector:
 
             raise RuntimeError("Failed to obtain current price from Binance and CoinGecko")
             
-            logger.debug(f"Current BTC price: ${current_price:,.2f}")
-            return current_price
-            
         except Exception as e:
             logger.error(f"Failed to get current price: {e}")
             return None

@@ -1,35 +1,35 @@
 """
-Sentiment data collection from various sources like Twitter, Reddit, and news.
+Sentiment data collection - simplified version without external APIs.
 """
 import pandas as pd
 import numpy as np
 from typing import Dict, List
-from textblob import TextBlob
-from newsapi import NewsApiClient
-import tweepy
-import praw
+import requests
 from config.config import Config
 
 class SentimentCollector:
     def __init__(self, config: Config):
         self.config = config
-        self.news_api = NewsApiClient(api_key=config.NEWS_API_KEY)
-        self.twitter_auth = tweepy.OAuthHandler(
-            config.TWITTER_API_KEY,
-            config.TWITTER_API_SECRET
-        )
-        self.twitter_api = tweepy.API(self.twitter_auth)
-        self.reddit = praw.Reddit(
-            client_id=config.REDDIT_CLIENT_ID,
-            client_secret=config.REDDIT_CLIENT_SECRET,
-            user_agent=config.REDDIT_USER_AGENT
-        )
+        # Simple sentiment word lists
+        self.positive_words = ['bullish', 'moon', 'pump', 'buy', 'hodl', 'green', 'up', 'rise', 'gain']
+        self.negative_words = ['bearish', 'dump', 'sell', 'crash', 'red', 'down', 'fall', 'loss', 'fear']
 
     def analyze_sentiment(self, text: str) -> Dict[str, float]:
-        """Analyze sentiment of text using TextBlob."""
-        analysis = TextBlob(text)
-        return {
-            'polarity': analysis.sentiment.polarity,
+        """Simple sentiment analysis using word counting."""
+        if not text:
+            return {'polarity': 0.0, 'subjectivity': 0.5}
+        
+        text_lower = text.lower()
+        positive_count = sum(1 for word in self.positive_words if word in text_lower)
+        negative_count = sum(1 for word in self.negative_words if word in text_lower)
+        
+        total_sentiment_words = positive_count + negative_count
+        
+        if total_sentiment_words == 0:
+            polarity = 0.0
+            subjectivity = 0.1
+        else:
+            polarity = (positive_count - negative_count) / max(total_sentiment_words, 1)
             subjectivity = min(total_sentiment_words / len(text_lower.split()), 1.0)
         
         return {

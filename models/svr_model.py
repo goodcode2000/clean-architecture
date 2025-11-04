@@ -33,7 +33,7 @@ class SVRPredictor:
         }
         self.best_params = None
         self.training_score = None
-    self.feature_importance = {}
+        self.feature_importance = {}
         
     def prepare_features(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
         """

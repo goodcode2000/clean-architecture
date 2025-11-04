@@ -5,7 +5,8 @@ from typing import Dict, List, Optional, Tuple
 from loguru import logger
 import sys
 import os
-import talib
+# import talib  # Replaced with ta library
+import ta
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 # Add parent directory to path for imports

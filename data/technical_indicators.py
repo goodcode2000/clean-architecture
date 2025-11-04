@@ -4,7 +4,8 @@ Technical indicators calculation module.
 import pandas as pd
 import numpy as np
 from typing import Dict
-import talib
+# import talib  # Replaced with ta library
+import ta
 
 class TechnicalIndicators:
     @staticmethod
@@ -13,35 +14,35 @@ class TechnicalIndicators:
         result = df.copy()
         
         # Trend Indicators
-        result['sma_20'] = talib.SMA(df['close'], timeperiod=20)
-        result['sma_50'] = talib.SMA(df['close'], timeperiod=50)
-        result['sma_200'] = talib.SMA(df['close'], timeperiod=200)
-        result['ema_12'] = talib.EMA(df['close'], timeperiod=12)
-        result['ema_26'] = talib.EMA(df['close'], timeperiod=26)
+        result['sma_20'] = ta.trend.sma_indicator(df['close'], window=20)
+        result['sma_50'] = ta.trend.sma_indicator(df['close'], window=50)
+        result['sma_200'] = ta.trend.sma_indicator(df['close'], window=200)
+        result['ema_12'] = ta.trend.ema_indicator(df['close'], window=12)
+        result['ema_26'] = ta.trend.ema_indicator(df['close'], window=26)
         
         # MACD
-        macd, macd_signal, macd_hist = talib.MACD(df['close'])
-        result['macd'] = macd
-        result['macd_signal'] = macd_signal
-        result['macd_hist'] = macd_hist
+        result['macd'] = ta.trend.macd(df['close'])
+        result['macd_signal'] = ta.trend.macd_signal(df['close'])
+        result['macd_hist'] = ta.trend.macd_diff(df['close'])
         
         # RSI
-        result['rsi'] = talib.RSI(df['close'], timeperiod=14)
+        result['rsi'] = ta.momentum.rsi(df['close'], window=14)
         
         # Volatility Indicators
-        result['atr'] = talib.ATR(df['high'], df['low'], df['close'], timeperiod=14)
-        result['bbands_upper'], result['bbands_middle'], result['bbands_lower'] = talib.BBANDS(
-            df['close'], timeperiod=20, nbdevup=2, nbdevdn=2
-        )
+        result['atr'] = ta.volatility.average_true_range(df['high'], df['low'], df['close'], window=14)
+        bb_indicator = ta.volatility.BollingerBands(df['close'], window=20, window_dev=2)
+        result['bbands_upper'] = bb_indicator.bollinger_hband()
+        result['bbands_middle'] = bb_indicator.bollinger_mavg()
+        result['bbands_lower'] = bb_indicator.bollinger_lband()
         
         # Volume Indicators
-        result['obv'] = talib.OBV(df['close'], df['volume'])
-        result['adl'] = talib.AD(df['high'], df['low'], df['close'], df['volume'])
+        result['obv'] = ta.volume.on_balance_volume(df['close'], df['volume'])
+        result['adl'] = ta.volume.acc_dist_index(df['high'], df['low'], df['close'], df['volume'])
         
         # Momentum Indicators
-        result['mfi'] = talib.MFI(df['high'], df['low'], df['close'], df['volume'], timeperiod=14)
-        result['cci'] = talib.CCI(df['high'], df['low'], df['close'], timeperiod=14)
-        result['roc'] = talib.ROC(df['close'], timeperiod=10)
+        result['mfi'] = ta.volume.money_flow_index(df['high'], df['low'], df['close'], df['volume'], window=14)
+        result['cci'] = ta.trend.cci(df['high'], df['low'], df['close'], window=14)
+        result['roc'] = ta.momentum.roc(df['close'], window=10)
         
         # Custom Indicators
         result['price_volatility'] = df['close'].pct_change().rolling(window=30).std()

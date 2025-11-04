@@ -222,8 +222,8 @@ class BTCDataCollector:
             except Exception as e:
                 logger.warning(f"Failed to load cached data: {e}")
         
-    # Calculate how many 5-minute intervals we need for configured days
-    intervals_needed = (self.historical_days * 24 * 60) // self.interval_minutes
+        # Calculate how many 5-minute intervals we need for configured days
+        intervals_needed = (self.historical_days * 24 * 60) // self.interval_minutes
         
         # Binance has a limit of 1000 records per request
         max_per_request = 1000

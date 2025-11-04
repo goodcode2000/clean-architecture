@@ -21,7 +21,7 @@ class BTCDataCollector:
         self.data_dir = Config.DATA_DIR
         self.historical_days = Config.HISTORICAL_DAYS
         self.interval_minutes = Config.DATA_INTERVAL_MINUTES
-        self.price_symbol = getattr(Config, 'PRICE_SYMBOL', 'BTCUSD')
+        self.price_symbol = getattr(Config, 'PRICE_SYMBOL', 'BTCUSDT')
         self.fallback_symbol = getattr(Config, 'BINANCE_FALLBACK_SYMBOL', 'BTCUSDT')
         
         # Ensure data directory exists

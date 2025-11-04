@@ -93,7 +93,7 @@ class Config:
     
     # API Server
     API_HOST = "0.0.0.0"
-    API_PORT = 80
+    API_PORT = 5000
     
     # File Paths
     DATA_DIR = "data"

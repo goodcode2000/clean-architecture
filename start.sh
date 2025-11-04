@@ -27,10 +27,13 @@ echo "Starting BTC Predictor..."
 echo "Press Ctrl+C to stop"
 echo "======================================"
 
-# Run with sudo for port 80 (VPS)
+# Set VPS mode if requested
 if [ "$1" = "vps" ]; then
-    sudo python simple_predictor.py
+    export API_PORT=80
+    echo "VPS mode: Using port 80 (may require sudo)"
+    sudo -E python simple_predictor.py
 else
     # Local development (port 5000)
+    export API_PORT=5000
     python simple_predictor.py
 fi

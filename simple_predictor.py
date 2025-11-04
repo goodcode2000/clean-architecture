@@ -342,8 +342,8 @@ class SimpleBTCPredictor:
     
     def start_api_server(self):
         """Start the Flask API server"""
-        # Use port 80 for VPS, 5000 for local
-        port = 80 if os.getenv('VPS_MODE', 'false').lower() == 'true' else 5000
+        # Use port 5000 (can be changed with environment variable)
+        port = int(os.getenv('API_PORT', '5000'))
         print(f"Starting API server on port {port}...")
         self.app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
     
@@ -360,7 +360,7 @@ class SimpleBTCPredictor:
         # Give API server time to start
         time.sleep(2)
         
-        port = 80 if os.getenv('VPS_MODE', 'false').lower() == 'true' else 5000
+        port = int(os.getenv('API_PORT', '5000'))
         print(f"✅ API Server: http://0.0.0.0:{port}")
         print("✅ Data Collection: Every 5 minutes")
         print("✅ Predictions: Every 5 minutes")

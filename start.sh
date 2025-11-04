@@ -16,7 +16,7 @@ source venv/bin/activate
 
 # Install requirements
 echo "Installing requirements..."
-pip install -r requirements_simple.txt
+pip install -r requirements.txt
 
 # Create data directory
 mkdir -p data

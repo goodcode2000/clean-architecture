@@ -22,7 +22,7 @@ from models.random_forest_model import RandomForestPredictor
 from models.lightgbm_model import LightGBMPredictor
 from models.lstm_model import LSTMPredictor
 from models.tft_model import TFTPredictor
-from models.rl_agent import RLTradingAgent
+from models.rl_agent import TradingRLAgent
 from services.feature_engineering import FeatureEngineer
 from services.preprocessing import DataPreprocessor
 from services.weight_adjustment import DynamicWeightAdjuster
@@ -40,7 +40,7 @@ class EnsemblePredictor:
             'lightgbm': LightGBMPredictor(),
             'lstm': LSTMPredictor(),
             'tft': TFTPredictor(),
-            'rl_agent': RLTradingAgent()
+            'rl_agent': TradingRLAgent()
         }
 
         # Initialize dynamic weight adjuster

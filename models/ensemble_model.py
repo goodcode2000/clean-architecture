@@ -263,20 +263,19 @@ class EnsemblePredictor:
             pred_values = list(predictions.values())
             pred_std = np.std(pred_values) if len(pred_values) > 1 else 0.0
             
-            ensemble_ci = (
-                ensemble_prediction - 2 * pred_std,  # 95% confidence interval
-                ensemble_prediction + 2 * pred_std
-            )
+            if pred_std > 0:
+                ensemble_lower = ensemble_prediction - 2 * pred_std  # 95% confidence interval
+                ensemble_upper = ensemble_prediction + 2 * pred_std
+            else:
+                margin = abs(ensemble_prediction) * 0.05
+                ensemble_lower = ensemble_prediction - margin
+                ensemble_upper = ensemble_prediction + margin
 
             # Log detailed prediction information
             logger.info(f"Current market volatility: {current_vol:.4f}")
             logger.info(f"Model weights: {self.weights}")
             logger.info(f"Model contributions: {model_contributions}")
-            logger.info(f"Ensemble prediction: {ensemble_prediction:.2f} [{ensemble_ci[0]:.2f}, {ensemble_ci[1]:.2f}]")
-            else:
-                margin = abs(ensemble_prediction) * 0.05
-                ensemble_lower = ensemble_prediction - margin
-                ensemble_upper = ensemble_prediction + margin
+            logger.info(f"Ensemble prediction: {ensemble_prediction:.2f} [{ensemble_lower:.2f}, {ensemble_upper:.2f}]")
 
             self.model_contributions = predictions.copy()
             self.detect_rapid_movements(df, ensemble_prediction)

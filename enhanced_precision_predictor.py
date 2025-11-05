@@ -127,12 +127,20 @@ class EnhancedBTCPredictor:
         self.directional_accuracy = 0.0
         self.price_direction_history = []
         
-        # Performance targets
-        self.target_accuracy = 30  # $30 USD max error
-        self.target_directional_accuracy = 0.75  # 75% directional accuracy
+        # Enhanced performance targets for rapid change detection
+        self.target_accuracy = 45  # $20-60 USD range (middle: $40, ±$20 tolerance)
+        self.target_directional_accuracy = 0.80  # 80% directional accuracy
+        
+        # 90-day data management
+        self.historical_real_data = []
+        self.last_5min_update = None
         
         os.makedirs('data', exist_ok=True)
         os.makedirs('models', exist_ok=True)
+        
+        # Initialize 90-day historical data
+        self.initialize_90_day_data()
+        
         self.setup_routes()
         
     def setup_routes(self):
@@ -191,8 +199,72 @@ class EnhancedBTCPredictor:
                 "selected_features": len(self.selected_features) if self.selected_features is not None else 0
             })
     
+    def fetch_90_days_historical_data(self):
+        """Fetch 90 days of historical data at startup"""
+        try:
+            print("📊 Fetching 90 days of historical BTC data...")
+            
+            # Get 90 days of 5-minute klines (90 * 24 * 12 = 25,920 points)
+            klines_url = "https://api.binance.com/api/v3/klines"
+            
+            # Binance limits to 1000 per request, so we need multiple requests
+            all_klines = []
+            end_time = int(datetime.now().timestamp() * 1000)
+            
+            # Fetch in chunks of 1000 (about 3.5 days each)
+            for chunk in range(26):  # 26 chunks to cover 90+ days
+                params = {
+                    "symbol": "BTCUSDT",
+                    "interval": "5m",
+                    "limit": 1000,
+                    "endTime": end_time
+                }
+                
+                response = requests.get(klines_url, params=params, timeout=30)
+                if response.status_code == 200:
+                    klines = response.json()
+                    if klines:
+                        all_klines.extend(klines)
+                        # Set end_time to the start of the oldest kline for next chunk
+                        end_time = klines[0][0] - 1
+                        print(f"📈 Fetched chunk {chunk + 1}/26 ({len(klines)} points)")
+                    else:
+                        break
+                else:
+                    print(f"⚠️ Failed to fetch chunk {chunk + 1}")
+                    break
+                
+                time.sleep(0.1)  # Rate limiting
+            
+            # Process and save historical data
+            if all_klines:
+                historical_data = []
+                for kline in reversed(all_klines):  # Reverse to get chronological order
+                    timestamp = datetime.fromtimestamp(kline[0] / 1000)
+                    price = float(kline[4])  # Close price
+                    
+                    historical_data.append({
+                        'timestamp': timestamp.isoformat(),
+                        'price': price
+                    })
+                
+                # Keep only last 90 days (25,920 points)
+                if len(historical_data) > 25920:
+                    historical_data = historical_data[-25920:]
+                
+                # Save to CSV
+                df = pd.DataFrame(historical_data)
+                df.to_csv('data/historical_real.csv', index=False)
+                
+                print(f"✅ Saved {len(historical_data)} historical price points (90 days)")
+                return True
+            
+        except Exception as e:
+            print(f"❌ Historical data fetch error: {e}")
+            return False
+    
     def fetch_btc_data(self):
-        """Enhanced data fetching with more features"""
+        """Enhanced data fetching with 5-minute intervals"""
         try:
             # Get current price
             url = "https://api.binance.com/api/v3/ticker/price"
@@ -218,7 +290,7 @@ class EnhancedBTCPredictor:
                 # Create enhanced feature set
                 features = self.create_enhanced_features(current_price, stats, klines)
                 
-                # Store data
+                # Store data in memory
                 timestamp = datetime.now()
                 data_point = {
                     'timestamp': timestamp,
@@ -229,15 +301,75 @@ class EnhancedBTCPredictor:
                 self.price_history.append(data_point)
                 self.current_price = current_price
                 
-                # Keep last 1000 points for efficiency
-                if len(self.price_history) > 1000:
-                    self.price_history = self.price_history[-1000:]
+                # Keep last 2000 points in memory (about 7 days at 5-min intervals)
+                if len(self.price_history) > 2000:
+                    self.price_history = self.price_history[-2000:]
+                
+                # Update historical_real.csv every 5 minutes
+                self.update_historical_real_csv(timestamp, current_price)
                 
                 return True
                 
         except Exception as e:
             print(f"❌ Data fetch error: {e}")
             return False
+    
+    def update_historical_real_csv(self, timestamp, price):
+        """Update historical_real.csv with new price data (5-minute intervals)"""
+        try:
+            # Check if it's time for 5-minute update
+            current_minute = timestamp.minute
+            if current_minute % 5 != 0:
+                return  # Only update on 5-minute intervals (0, 5, 10, 15, etc.)
+            
+            # Load existing data
+            historical_data = []
+            if os.path.exists('data/historical_real.csv'):
+                df = pd.read_csv('data/historical_real.csv')
+                historical_data = df.to_dict('records')
+            
+            # Add new data point
+            new_point = {
+                'timestamp': timestamp.isoformat(),
+                'price': price
+            }
+            historical_data.append(new_point)
+            
+            # Keep only last 90 days (25,920 points at 5-minute intervals)
+            if len(historical_data) > 25920:
+                historical_data = historical_data[-25920:]
+            
+            # Save updated data
+            df = pd.DataFrame(historical_data)
+            df.to_csv('data/historical_real.csv', index=False)
+            
+            print(f"📊 Updated historical_real.csv: {len(historical_data)} points (90 days)")
+            
+        except Exception as e:
+            print(f"⚠️ Historical CSV update error: {e}")
+    
+    def load_historical_real_data(self):
+        """Load historical real price data for training"""
+        try:
+            if os.path.exists('data/historical_real.csv'):
+                df = pd.read_csv('data/historical_real.csv')
+                
+                # Convert to internal format for training
+                training_data = []
+                for _, row in df.iterrows():
+                    timestamp = datetime.fromisoformat(row['timestamp'])
+                    price = float(row['price'])
+                    
+                    training_data.append({
+                        'timestamp': timestamp,
+                        'price': price
+                    })
+                
+                print(f"📈 Loaded {len(training_data)} historical points for training")
+                return training_data
+            else:
+                print("⚠️ No historical_real.csv found, fetching 90 days data...")
+                if self.fetch_90_days_hist
     
     def create_enhanced_features(self, current_price, stats, klines):
         """Create comprehensive feature set for ML models"""
@@ -811,6 +943,52 @@ class EnhancedBTCPredictor:
         except Exception as e:
             print(f"⚠️ Save predictions error: {e}")
     
+    def save_price_history(self):
+        """Save real price history to CSV for retraining"""
+        try:
+            if len(self.price_history) > 0:
+                # Convert to DataFrame
+                price_data = []
+                for point in self.price_history:
+                    price_data.append({
+                        'timestamp': point['timestamp'].isoformat(),
+                        'price': point['price']
+                    })
+                
+                df = pd.DataFrame(price_data)
+                df.to_csv('data/price_history.csv', index=False)
+                print(f"💾 Saved {len(price_data)} price points for retraining")
+        except Exception as e:
+            print(f"⚠️ Price history save error: {e}")
+    
+    def load_price_history(self):
+        """Load existing price history from CSV for retraining"""
+        try:
+            if os.path.exists('data/price_history.csv'):
+                df = pd.read_csv('data/price_history.csv')
+                
+                # Convert back to internal format
+                loaded_history = []
+                for _, row in df.iterrows():
+                    timestamp = datetime.fromisoformat(row['timestamp'])
+                    price = float(row['price'])
+                    
+                    loaded_history.append({
+                        'timestamp': timestamp,
+                        'price': price
+                    })
+                
+                # Keep only recent data to avoid memory issues
+                if len(loaded_history) > 10000:  # ~7 days
+                    loaded_history = loaded_history[-10000:]
+                
+                self.price_history = loaded_history
+                print(f"📊 Loaded {len(loaded_history)} historical price points for retraining")
+                return True
+        except Exception as e:
+            print(f"⚠️ Price history load error: {e}")
+        return False
+    
     def run_prediction_loop(self):
         """Main prediction loop"""
         print("🚀 Starting Enhanced BTC Predictor...")
@@ -838,8 +1016,12 @@ class EnhancedBTCPredictor:
                             # Update performance and adjust weights
                             self.update_model_performance(prediction)
                             
-                            # Save predictions
+                            # Save predictions and price history
                             self.save_predictions()
+                            
+                            # Save price history every 10 predictions for retraining
+                            if len(self.predictions) % 10 == 0:
+                                self.save_price_history()
                             
                             # Display prediction
                             pred_price = prediction['predicted_price']

@@ -733,8 +733,8 @@ def main():
             
         except Exception as e:
             print(f"⚠️ Weight adjustment error: {e}")
-d
-ef main():
+
+def main():
     predictor = EnhancedBTCPredictor()
     
     # Start prediction loop in thread

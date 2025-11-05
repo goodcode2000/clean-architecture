@@ -301,7 +301,24 @@ class EnhancedBTCPredictor:
                 'price': price
             }
             
-            # Check if this timestamp already exists (a
+            # Check if this timestamp already exists (avoid duplicates)
+            existing_timestamps = [point['timestamp'] for point in historical_data]
+            if new_point['timestamp'] not in existing_timestamps:
+                historical_data.append(new_point)
+                
+                # Keep only last 90 days (25,920 points at 5-minute intervals)
+                if len(historical_data) > 25920:
+                    historical_data = historical_data[-25920:]
+                
+                # Save updated data
+                df = pd.DataFrame(historical_data)
+                df.to_csv('data/historical_real.csv', index=False)
+                
+                self.last_5min_update = current_5min_mark
+                print(f"📊 Updated historical_real.csv: {len(historical_data)} points (90 days)")
+            
+        except Exception as e:
+            print(f"⚠️ Historical CSV update error: {e}")
     
     def train_models(self):
         """Train all models using 90-day historical data for improved accuracy"""

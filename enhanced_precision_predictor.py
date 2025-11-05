@@ -707,9 +707,9 @@ class EnhancedBTCPredictor:
             
         except Exception as e:
             print(f"❌ Ensemble prediction error: {e}")
-            return None    
-   
- def update_model_performance(self, prediction_record):
+            return None
+    
+    def update_model_performance(self, prediction_record):
         """Update individual model performance and adjust weights"""
         try:
             if len(self.predictions) < 2:

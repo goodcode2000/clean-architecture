@@ -315,9 +315,9 @@ class EnhancedBTCPredictor:
         except Exception as e:
             print(f"⚠️ Feature creation error: {e}")
             
-        return features    
-  
-  def calculate_ema(self, prices, period):
+        return features
+    
+    def calculate_ema(self, prices, period):
         """Calculate Exponential Moving Average"""
         if len(prices) < period:
             return np.mean(prices)

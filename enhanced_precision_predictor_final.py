@@ -272,9 +272,9 @@ class EnhancedBTCPredictor:
             
         except Exception as e:
             print(f"❌ 90-day data fetch error: {e}")
-            return False    
-  
-  def fetch_btc_data(self):
+            return False
+    
+    def fetch_btc_data(self):
         """Fetch current BTC data and update historical file every 5 minutes"""
         try:
             url = "https://api.binance.com/api/v3/ticker/price"
@@ -631,9 +631,6 @@ def main():
     print("🌐 Starting API server on port 8080...")
     predictor.app.run(host='0.0.0.0', port=8080, debug=False)
 
-if __name__ == "__main__":
-    main()   
- 
     def train_lstm_model(self, X, y):
         """Train LSTM model for sequential pattern learning"""
         try:
@@ -736,3 +733,18 @@ if __name__ == "__main__":
             
         except Exception as e:
             print(f"⚠️ Weight adjustment error: {e}")
+d
+ef main():
+    predictor = EnhancedBTCPredictor()
+    
+    # Start prediction loop in thread
+    prediction_thread = threading.Thread(target=predictor.run_prediction_loop)
+    prediction_thread.daemon = True
+    prediction_thread.start()
+    
+    # Start API server
+    print("🌐 Starting API server on port 8080...")
+    predictor.app.run(host='0.0.0.0', port=8080, debug=False)
+
+if __name__ == "__main__":
+    main()

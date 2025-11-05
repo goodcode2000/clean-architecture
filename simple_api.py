@@ -136,9 +136,9 @@ def system_status():
 
 if __name__ == "__main__":
     print("🚀 Starting Simple BTC API Server...")
-    print("📊 Port: 5000 (No root permissions needed)")
+    print("📊 Port: 8001 (No root permissions needed)")
     print("🔗 Endpoints: /api/health, /api/current-price, /api/historical-data")
     print("✅ CORS enabled for dashboard connection")
     print("="*50)
     
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    app.run(host='0.0.0.0', port=8001, debug=False)

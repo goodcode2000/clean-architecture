@@ -590,9 +590,9 @@ class EnhancedBTCPredictor:
         trained_count = sum(self.models_trained.values())
         print(f"✅ Trained {trained_count} models successfully")
         
-        return trained_count > 0    
-    d
-ef make_ensemble_prediction(self):
+        return trained_count > 0
+    
+    def make_ensemble_prediction(self):
         """Make prediction using ensemble of models with dynamic weights"""
         try:
             if not any(self.models_trained.values()):

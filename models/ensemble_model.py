@@ -1,4 +1,4 @@
-"""Ensemble model combining ETS, SVR, Random Forest, LightGBM, and LSTM for BTC prediction."""
+"""Ensemble model combining ARIMA, SVR, Random Forest, XGBoost, and LSTM for BTC prediction."""
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, Any, List, Optional
@@ -13,31 +13,39 @@ import time
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config.config import Config
-from models.ets_model import ETSPredictor
+from models.arima_model import ARIMAPredictor
 from models.svr_model import SVRPredictor
 from models.random_forest_model import RandomForestPredictor
-from models.lightgbm_model import LightGBMPredictor
+from models.xgboost_model import XGBoostPredictor
 from models.lstm_model import LSTMPredictor
-from models.kalman_model import KalmanPredictor
 from services.feature_engineering import FeatureEngineer
 from services.preprocessing import DataPreprocessor
+from services.dynamic_weighting import DynamicWeightManager
 
 class EnsemblePredictor:
     """Ensemble model combining multiple ML algorithms for BTC price prediction."""
     
     def __init__(self):
-        # Initialize individual models
+        # Initialize individual models (updated with ARIMA and XGBoost)
         self.models = {
-            'ets': ETSPredictor(),
+            'arima': ARIMAPredictor(),
             'svr': SVRPredictor(),
-            'kalman': KalmanPredictor(),
             'random_forest': RandomForestPredictor(),
-            'lightgbm': LightGBMPredictor(),
+            'xgboost': XGBoostPredictor(),
             'lstm': LSTMPredictor()
         }
         
-        # Ensemble weights from config
-        self.weights = Config.ENSEMBLE_WEIGHTS.copy()
+        # Dynamic weight management system
+        self.weight_manager = DynamicWeightManager(
+            window_size=50,
+            min_weight=0.05,
+            max_weight=0.5
+        )
+        
+        # Initialize dynamic weights
+        model_names = list(self.models.keys())
+        self.weight_manager.initialize_models(model_names)
+        self.weights = self.weight_manager.current_weights.copy()
         
         # Feature engineering and preprocessing
         self.feature_engineer = FeatureEngineer()
@@ -52,6 +60,7 @@ class EnsemblePredictor:
         # Volatility detection
         self.volatility_threshold = 0.05  # 5% price change threshold
         self.rapid_movement_detected = False
+        self.recent_prices = []  # For market regime detection
         
     def prepare_data_for_models(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
@@ -81,8 +90,8 @@ class EnsemblePredictor:
                 'raw_df': df,
                 'features_df': features_df,
                 'clean_df': clean_df,
-                'ets_data': clean_df,  # ETS uses clean data directly
-                'sklearn_data': clean_df,  # SVR, RF, LightGBM use clean data
+                'arima_data': clean_df,  # ARIMA uses clean data directly
+                'sklearn_data': clean_df,  # SVR, RF, XGBoost use clean data
                 'lstm_data': clean_df  # LSTM uses clean data with sequences
             }
             
@@ -106,9 +115,9 @@ class EnsemblePredictor:
         training_results = {}
         
         try:
-            # Train ETS model
-            logger.info("Training ETS model...")
-            training_results['ets'] = self.models['ets'].train(prepared_data['ets_data'])
+            # Train ARIMA model
+            logger.info("Training ARIMA model...")
+            training_results['arima'] = self.models['arima'].train(prepared_data['arima_data'])
             
             # Train SVR model
             logger.info("Training SVR model...")
@@ -118,9 +127,9 @@ class EnsemblePredictor:
             logger.info("Training Random Forest model...")
             training_results['random_forest'] = self.models['random_forest'].train(prepared_data['sklearn_data'], optimize_params=False)
             
-            # Train LightGBM model
-            logger.info("Training LightGBM model...")
-            training_results['lightgbm'] = self.models['lightgbm'].train(prepared_data['sklearn_data'], optimize_params=False)
+            # Train XGBoost model
+            logger.info("Training XGBoost model...")
+            training_results['xgboost'] = self.models['xgboost'].train(prepared_data['sklearn_data'], optimize_params=False)
             
             # Train LSTM model
             logger.info("Training LSTM model...")
@@ -173,8 +182,8 @@ class EnsemblePredictor:
                 logger.error(f"Only {successful_count} models trained successfully. Need at least 3.")
                 return False
             
-            # Adjust weights for failed models
-            self.adjust_weights_for_failed_models(training_results)
+            # Initialize dynamic weights based on training results
+            self.initialize_dynamic_weights(training_results)
             
             # Calculate training scores
             self.calculate_training_scores(prepared_data['clean_df'])
@@ -182,7 +191,7 @@ class EnsemblePredictor:
             self.is_trained = True
             
             logger.info(f"Ensemble model trained successfully with {successful_count}/5 models")
-            logger.info(f"Adjusted weights: {self.weights}")
+            logger.info(f"Initial dynamic weights: {self.weights}")
             
             return True
             
@@ -190,31 +199,32 @@ class EnsemblePredictor:
             logger.error(f"Ensemble training failed: {e}")
             return False
     
-    def adjust_weights_for_failed_models(self, training_results: Dict[str, bool]):
+    def initialize_dynamic_weights(self, training_results: Dict[str, bool]):
         """
-        Adjust ensemble weights for models that failed to train.
+        Initialize dynamic weights based on training results.
         
         Args:
             training_results: Dictionary with training success status
         """
         try:
-            # Set weights to 0 for failed models
-            failed_models = [name for name, success in training_results.items() if not success]
+            # Reset weight manager for failed models
+            for model_name, success in training_results.items():
+                if not success:
+                    self.weight_manager.reset_performance(model_name)
             
-            for model_name in failed_models:
-                self.weights[model_name] = 0.0
+            # Get initial weights from weight manager
+            self.weights = self.weight_manager.calculate_weights()
             
-            # Renormalize weights
-            total_weight = sum(self.weights.values())
-            
-            if total_weight > 0:
-                for model_name in self.weights:
-                    self.weights[model_name] /= total_weight
-            
-            logger.info(f"Weights adjusted for failed models: {failed_models}")
+            logger.info(f"Dynamic weights initialized based on training results")
             
         except Exception as e:
-            logger.error(f"Failed to adjust weights: {e}")
+            logger.error(f"Failed to initialize dynamic weights: {e}")
+            # Fallback to equal weights for successful models
+            successful_models = [name for name, success in training_results.items() if success]
+            if successful_models:
+                equal_weight = 1.0 / len(successful_models)
+                self.weights = {name: equal_weight if name in successful_models else 0.0 
+                              for name in self.models.keys()}
     
     def predict(self, df: pd.DataFrame) -> Tuple[float, Tuple[float, float]]:
         """
@@ -245,7 +255,7 @@ class EnsemblePredictor:
             for model_name, model in self.models.items():
                 if self.weights[model_name] > 0:  # Only predict with trained models
                     try:
-                        if model_name == 'ets':
+                        if model_name == 'arima':
                             pred, conf = model.predict()
                         else:
                             pred, conf = model.predict(prepared_data['sklearn_data'])
@@ -295,6 +305,16 @@ class EnsemblePredictor:
             # Store model contributions for analysis
             self.model_contributions = predictions.copy()
             
+            # Update recent prices for market regime detection
+            if len(df) > 0:
+                current_price = df['close'].iloc[-1]
+                self.recent_prices.append(current_price)
+                if len(self.recent_prices) > 50:  # Keep last 50 prices
+                    self.recent_prices = self.recent_prices[-50:]
+            
+            # Detect market regime and update weights
+            self.update_dynamic_weights(df, ensemble_prediction, predictions)
+            
             # Detect rapid price movements
             self.detect_rapid_movements(df, ensemble_prediction)
             
@@ -306,6 +326,76 @@ class EnsemblePredictor:
         except Exception as e:
             logger.error(f"Ensemble prediction failed: {e}")
             return 0.0, (0.0, 0.0)
+    
+    def update_dynamic_weights(self, df: pd.DataFrame, ensemble_prediction: float, 
+                             individual_predictions: Dict[str, float]):
+        """
+        Update dynamic weights based on recent performance and market conditions.
+        
+        Args:
+            df: Current price data
+            ensemble_prediction: Ensemble prediction
+            individual_predictions: Individual model predictions
+        """
+        try:
+            if len(df) < 2:
+                return
+            
+            current_price = df['close'].iloc[-1]
+            previous_price = df['close'].iloc[-2]
+            
+            # Calculate market volatility
+            volatility = abs(current_price - previous_price) / previous_price
+            
+            # Detect market regime
+            market_regime = self.weight_manager.detect_market_regime(self.recent_prices)
+            
+            # Update performance for models that made predictions
+            # Note: We'll update with actual values in the next prediction cycle
+            # For now, we store the predictions for later evaluation
+            
+            # Calculate new weights
+            self.weights = self.weight_manager.calculate_weights()
+            
+            logger.debug(f"Dynamic weights updated for {market_regime} market regime")
+            
+        except Exception as e:
+            logger.error(f"Failed to update dynamic weights: {e}")
+    
+    def update_model_performance(self, actual_price: float):
+        """
+        Update model performance tracking with actual price.
+        
+        Args:
+            actual_price: The actual price that occurred
+        """
+        try:
+            if not self.model_contributions:
+                return
+            
+            # Calculate volatility from recent prices
+            volatility = 0.0
+            if len(self.recent_prices) >= 2:
+                recent_changes = []
+                for i in range(1, min(len(self.recent_prices), 10)):
+                    change = abs(self.recent_prices[-i] - self.recent_prices[-i-1]) / self.recent_prices[-i-1]
+                    recent_changes.append(change)
+                volatility = np.mean(recent_changes) if recent_changes else 0.0
+            
+            # Update performance for each model
+            for model_name, prediction in self.model_contributions.items():
+                if prediction != 0.0:  # Only update models that made valid predictions
+                    self.weight_manager.update_performance(
+                        model_name=model_name,
+                        prediction=prediction,
+                        actual=actual_price,
+                        volatility=volatility
+                    )
+            
+            logger.debug(f"Updated model performance with actual price: {actual_price:.2f}")
+            
+        except Exception as e:
+            logger.error(f"Failed to update model performance: {e}")
     
     def detect_rapid_movements(self, df: pd.DataFrame, predicted_price: float):
         """
@@ -385,8 +475,8 @@ class EnsemblePredictor:
             for model_name, model in self.models.items():
                 if self.weights[model_name] > 0:  # Only update trained models
                     try:
-                        if model_name == 'ets':
-                            update_results[model_name] = model.update_model(prepared_data['ets_data'])
+                        if model_name == 'arima':
+                            update_results[model_name] = model.update_model(prepared_data['arima_data'])
                         else:
                             update_results[model_name] = model.update_model(prepared_data['sklearn_data'])
                     except Exception as e:
@@ -415,7 +505,9 @@ class EnsemblePredictor:
             'weights': self.weights.copy(),
             'individual_models': {},
             'rapid_movement_detected': self.rapid_movement_detected,
-            'last_contributions': self.model_contributions.copy()
+            'last_contributions': self.model_contributions.copy(),
+            'market_regime': self.weight_manager.current_regime,
+            'performance_metrics': self.weight_manager.get_performance_metrics()
         }
         
         # Get info from individual models
@@ -450,13 +542,18 @@ class EnsemblePredictor:
                     if model.save_model(model_path):
                         saved_models[model_name] = model_path
             
+            # Save weight manager state
+            weight_manager_path = os.path.join(models_dir, "weight_manager_state.json")
+            self.weight_manager.save_state(weight_manager_path)
+            
             # Save ensemble metadata
             ensemble_data = {
                 'weights': self.weights,
                 'is_trained': self.is_trained,
                 'training_scores': self.training_scores,
                 'saved_models': saved_models,
-                'volatility_threshold': self.volatility_threshold
+                'volatility_threshold': self.volatility_threshold,
+                'weight_manager_path': weight_manager_path
             }
             
             joblib.dump(ensemble_data, filepath)
@@ -489,6 +586,11 @@ class EnsemblePredictor:
             self.is_trained = ensemble_data['is_trained']
             self.training_scores = ensemble_data.get('training_scores', {})
             self.volatility_threshold = ensemble_data.get('volatility_threshold', 0.05)
+            
+            # Load weight manager state
+            weight_manager_path = ensemble_data.get('weight_manager_path')
+            if weight_manager_path and os.path.exists(weight_manager_path):
+                self.weight_manager.load_state(weight_manager_path)
             
             # Load individual models
             saved_models = ensemble_data.get('saved_models', {})

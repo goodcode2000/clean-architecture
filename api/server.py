@@ -8,6 +8,7 @@ from typing import Dict, Any, Optional
 from loguru import logger
 import threading
 import time
+import pandas as pd
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -321,6 +322,27 @@ class APIServer:
             except Exception as e:
                 logger.error(f"List backups API error: {e}")
                 return jsonify({'error': str(e)}), 500
+        
+        @self.app.route('/api/prediction-history-2m', methods=['GET'])
+        def get_prediction_history_2m():
+            """Get historical predictions from the 2-minute interval CSV file."""
+            csv_path = '/home/ubuntu/main72/Price_precting/data/predictions.csv'
+            try:
+                if not os.path.exists(csv_path):
+                    return jsonify({'error': f'Prediction file not found at {csv_path}'}), 404
+
+                df = pd.read_csv(csv_path)
+                
+                records = df.to_dict('records')
+                
+                return jsonify({
+                    "predictions": records,
+                    "total": len(records),
+                    "source": "static_csv"
+                })
+            except Exception as e:
+                logger.error(f"Failed to read prediction CSV at {csv_path}: {e}")
+                return jsonify({"predictions": [], "error": str(e)}), 500
     
     def initialize_components(self, data_manager: BTCDataManager, 
                             prediction_pipeline: PredictionPipeline,

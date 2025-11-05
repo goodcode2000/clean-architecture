@@ -14,14 +14,23 @@ class Config:
     HISTORICAL_DAYS = 90
     PREDICTION_HORIZON_MINUTES = 5
     
-    # Model Configuration
+    # Model Configuration (Updated for new ensemble)
     ENSEMBLE_WEIGHTS = {
-        'ets': 0.15,
+        'arima': 0.20,
         'svr': 0.20,
-        'kalman': 0.05,
-        'random_forest': 0.25,
-        'lightgbm': 0.25,
-        'lstm': 0.15
+        'random_forest': 0.20,
+        'xgboost': 0.20,
+        'lstm': 0.20
+    }
+    
+    # Dynamic Weighting Configuration
+    DYNAMIC_WEIGHTING = {
+        'enabled': True,
+        'window_size': 50,
+        'min_weight': 0.05,
+        'max_weight': 0.5,
+        'adaptation_speed': 0.1,
+        'volatility_threshold': 0.05
     }
     
     # LSTM Configuration
@@ -50,7 +59,7 @@ class Config:
     
     # API Server
     API_HOST = "0.0.0.0"
-    API_PORT = 80
+    API_PORT = 8000
     
     # File Paths
     DATA_DIR = "data"

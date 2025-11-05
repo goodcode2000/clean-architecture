@@ -399,6 +399,9 @@ class PredictionPipeline:
                                 model_name, contrib, actual_price, pred_time
                             )
                         
+                        # Update ensemble model performance tracking
+                        self.ensemble_model.update_model_performance(actual_price)
+                        
                         # Update data manager
                         self.data_manager.update_prediction_with_actual(pred_time, actual_price)
                         

@@ -427,7 +427,7 @@ class DataPreprocessor:
             df_clean = df_clean.dropna(thresh=int(len(df_clean.columns) * missing_threshold))
             
             # Forward fill remaining missing values (limited)
-            df_clean = df_clean.fillna(method='ffill', limit=3)
+            df_clean = df_clean.ffill(limit=3)
             
             # Remove any remaining rows with missing values
             df_clean = df_clean.dropna()

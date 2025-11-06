@@ -70,7 +70,7 @@ class CSVDataProvider:
             return None, f"Error reading CSV: {str(e)}"
     
     def get_historical_data(self, project_id, limit=None):
-        """Get historical real price data"""
+        """Get historical real price data - latest 24 hours by default"""
         file_path = self.get_csv_file_path(project_id, 'historical_real')
         if not file_path:
             return None, "Project not found"
@@ -79,28 +79,35 @@ class CSVDataProvider:
         if error:
             return None, error
         
-        # Apply limit if specified
-        if limit and len(df) > limit:
+        # Convert timestamp column to datetime for filtering
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        
+        # Get last 24 hours of data (288 points at 5-minute intervals)
+        if limit is None:
+            # Default: last 24 hours (288 points)
+            df = df.tail(288)
+        elif limit > 0:
             df = df.tail(limit)
         
         # Convert to API format
         data_points = []
         for _, row in df.iterrows():
             data_points.append({
-                "timestamp": row['timestamp'],
+                "timestamp": row['timestamp'].isoformat(),
                 "price": float(row['price'])
             })
         
         return {
             "data": data_points,
             "total": len(data_points),
+            "range": "24 hours" if limit is None else f"last {len(data_points)} points",
             "project": self.projects[project_id]['name'],
             "file_path": file_path,
             "last_updated": datetime.fromtimestamp(os.path.getmtime(file_path)).isoformat()
         }, None
     
     def get_prediction_data(self, project_id, limit=None):
-        """Get prediction data"""
+        """Get prediction data - latest 24 hours by default"""
         file_path = self.get_csv_file_path(project_id, 'predictions')
         if not file_path:
             return None, "Project not found"
@@ -109,15 +116,32 @@ class CSVDataProvider:
         if error:
             return None, error
         
-        # Apply limit if specified
-        if limit and len(df) > limit:
-            df = df.tail(limit)
+        # Convert timestamp column to datetime for filtering
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        
+        # Calculate 24 hours ago from the latest prediction
+        if len(df) > 0:
+            latest_time = df['timestamp'].max()
+            twenty_four_hours_ago = latest_time - pd.Timedelta(hours=24)
+            
+            # Filter for last 24 hours
+            df_24h = df[df['timestamp'] >= twenty_four_hours_ago]
+            
+            # If less than 24 hours of data, use all available data
+            if len(df_24h) == 0:
+                df_24h = df  # Use all data if no data in last 24 hours
+        else:
+            df_24h = df  # Empty dataframe
+        
+        # Apply additional limit if specified
+        if limit and len(df_24h) > limit:
+            df_24h = df_24h.tail(limit)
         
         # Convert to API format
         predictions = []
-        for _, row in df.iterrows():
+        for _, row in df_24h.iterrows():
             pred_data = {
-                "timestamp": row['timestamp'],
+                "timestamp": row['timestamp'].isoformat(),
                 "predicted_price": float(row['predicted_price'])
             }
             
@@ -133,9 +157,15 @@ class CSVDataProvider:
             
             predictions.append(pred_data)
         
+        hours_span = 24 if len(df_24h) > 0 else 0
+        if len(df) > 0 and len(df_24h) > 0:
+            actual_span = (df_24h['timestamp'].max() - df_24h['timestamp'].min()).total_seconds() / 3600
+            hours_span = min(24, actual_span)
+        
         return {
             "predictions": predictions,
             "total": len(predictions),
+            "range": f"{hours_span:.1f} hours" if hours_span < 24 else "24 hours",
             "project": self.projects[project_id]['name'],
             "file_path": file_path,
             "last_updated": datetime.fromtimestamp(os.path.getmtime(file_path)).isoformat()

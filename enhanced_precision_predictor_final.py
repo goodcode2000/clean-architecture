@@ -502,12 +502,13 @@ class EnhancedBTCPredictor:
                 # LSTM
                 if self.models_trained['lstm'] and TENSORFLOW_AVAILABLE:
                     try:
-                        # Prepare sequence for LSTM
+                        # Prepare sequence for LSTM - must match training shape
                         if len(self.price_history) >= 10:
                             recent_prices = [p['price'] for p in self.price_history[-10:]]
                             X_lstm_seq = np.array([recent_prices])
                             X_lstm_scaled = self.scalers['lstm'].transform(X_lstm_seq)
-                            X_lstm_reshaped = X_lstm_scaled.reshape(1, X_lstm_scaled.shape[1], 1)
+                            # Reshape to match training: (1, 10, 10) not (1, 10, 1)
+                            X_lstm_reshaped = X_lstm_scaled.reshape(1, 1, X_lstm_scaled.shape[1])
                             
                             lstm_pred = self.models['lstm'].predict(X_lstm_reshaped, verbose=0)[0][0]
                             predictions['lstm'] = lstm_pred

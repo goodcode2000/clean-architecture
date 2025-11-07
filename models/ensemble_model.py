@@ -78,12 +78,22 @@ class EnsemblePredictor:
             # Create features
             features_df = self.feature_engineer.create_all_features(df)
             
-            if len(features_df) == 0:
-                logger.error("Feature engineering failed")
+            if features_df is None or len(features_df) == 0:
+                logger.error("Feature engineering returned empty dataframe")
                 return {}
+            
+            logger.info(f"Features created: {len(features_df)} samples, {len(features_df.columns)} features")
             
             # Clean data
             clean_df = self.preprocessor.clean_data_for_training(features_df)
+            
+            if clean_df is None or len(clean_df) == 0:
+                logger.error("Data cleaning returned empty dataframe")
+                return {}
+            
+            if len(clean_df) < 50:
+                logger.error(f"Insufficient data after cleaning: {len(clean_df)} samples (need at least 50)")
+                return {}
             
             # Prepare data for different model types
             prepared_data = {
@@ -95,11 +105,13 @@ class EnsemblePredictor:
                 'lstm_data': clean_df  # LSTM uses clean data with sequences
             }
             
-            logger.info(f"Data prepared: {len(clean_df)} samples, {len(clean_df.columns)} features")
+            logger.info(f"Data prepared successfully: {len(clean_df)} samples, {len(clean_df.columns)} features")
             return prepared_data
             
         except Exception as e:
             logger.error(f"Failed to prepare ensemble data: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return {}
     
     def train_individual_models(self, prepared_data: Dict[str, Any]) -> Dict[str, bool]:

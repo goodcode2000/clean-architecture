@@ -451,11 +451,15 @@ class EnhancedBTCPredictor:
             print(f"❌ Training error: {e}")
             return False    
 
-    def make_prediction(self):
-        """Make ensemble prediction"""
+    def make_prediction(self, prediction_timestamp=None):
+        """Make ensemble prediction for 5 minutes ahead"""
         try:
             if not any(self.models_trained.values()):
                 return None
+            
+            # Use provided timestamp or create clean timestamp (no seconds)
+            if prediction_timestamp is None:
+                prediction_timestamp = datetime.now().replace(second=0, microsecond=0)
             
             predictions = {}
             
@@ -535,12 +539,13 @@ class EnhancedBTCPredictor:
                     final_prediction = weighted_prediction / total_weight
                     
                     prediction_record = {
-                        'timestamp': datetime.now().isoformat(),
+                        'timestamp': prediction_timestamp.isoformat(),
                         'current_price': self.current_price,
                         'predicted_price': final_prediction,
+                        'prediction_for_time': (prediction_timestamp + timedelta(minutes=5)).isoformat(),
                         'individual_predictions': predictions,
                         'model_weights': self.model_weights.copy(),
-                        'model': 'Enhanced Ensemble with LSTM',
+                        'model': 'Enhanced Ensemble with LSTM (5min ahead)',
                         'confidence_lower': final_prediction * 0.98,
                         'confidence_upper': final_prediction * 1.02
                     }
@@ -563,17 +568,28 @@ class EnhancedBTCPredictor:
             print(f"⚠️ Save error: {e}")
     
     def run_prediction_loop(self):
-        """Main prediction loop with 5-minute intervals and periodic retraining"""
+        """Main prediction loop with 1-minute intervals, predicting 5 minutes ahead"""
         print("🚀 Starting Enhanced BTC Predictor...")
         print("📊 Models: ARIMA + SVM + Boruta+RF + XGBoost + LSTM")
         print("🎯 Target: $20-60 USD accuracy with rapid change detection")
         print("📈 90-day historical data management enabled")
+        print("🔮 Prediction: 5 minutes ahead")
         print("="*60)
+        
+        # Wait until next exact minute mark before starting predictions
+        now = datetime.now()
+        seconds_to_wait = 60 - now.second
+        if seconds_to_wait < 60:
+            print(f"⏳ Waiting {seconds_to_wait} seconds until next minute mark...")
+            time.sleep(seconds_to_wait)
         
         retrain_counter = 0
         
         while True:
             try:
+                # Get current time and round to exact minute (remove seconds/microseconds)
+                prediction_time = datetime.now().replace(second=0, microsecond=0)
+                
                 # Fetch data every minute
                 if self.fetch_btc_data():
                     print(f"💰 Current BTC Price: ${self.current_price:,.2f}")
@@ -589,18 +605,19 @@ class EnhancedBTCPredictor:
                         # Quick retrain with recent data
                         self.train_models()
                     
-                    # Make prediction
+                    # Make prediction with clean timestamp
                     if any(self.models_trained.values()):
-                        prediction = self.make_prediction()
+                        prediction = self.make_prediction(prediction_timestamp)
                         
                         if prediction:
                             self.predictions.append(prediction)
                             self.save_predictions()
                             
                             pred_price = prediction['predicted_price']
+                            pred_for_time = prediction['prediction_for_time']
                             direction = "📈" if pred_price > self.current_price else "📉"
                             change = abs(pred_price - self.current_price)
-                            print(f"🔮 Prediction: ${pred_price:,.2f} {direction} (±${change:.2f})")
+                            print(f"🔮 Prediction: ${pred_price:,.2f} {direction} (±${change:.2f}) for {pred_for_time}")
                             
                             # Update model performance for dynamic weight adjustment
                             if len(self.predictions) > 1 and 'individual_predictions' in prediction:
@@ -617,7 +634,10 @@ class EnhancedBTCPredictor:
                             if len(self.predictions) > 1000:
                                 self.predictions = self.predictions[-1000:]
                 
-                time.sleep(60)  # 1-minute intervals (5-minute CSV updates handled in fetch_btc_data)
+                # Sleep until next exact minute mark
+                now = datetime.now()
+                seconds_until_next_minute = 60 - now.second
+                time.sleep(seconds_until_next_minute)
                 
             except KeyboardInterrupt:
                 print("\n🛑 Stopping predictor...")

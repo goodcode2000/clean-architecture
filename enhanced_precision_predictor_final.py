@@ -607,7 +607,7 @@ class EnhancedBTCPredictor:
                     
                     # Make prediction with clean timestamp
                     if any(self.models_trained.values()):
-                        prediction = self.make_prediction(prediction_timestamp)
+                        prediction = self.make_prediction(prediction_time)
                         
                         if prediction:
                             self.predictions.append(prediction)

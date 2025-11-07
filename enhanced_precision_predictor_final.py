@@ -618,19 +618,7 @@ class EnhancedBTCPredictor:
             except Exception as e:
                 print(f"❌ Error: {e}")
                 time.sleep(30)
-
-def main():
-    predictor = EnhancedBTCPredictor()
     
-    # Start prediction loop in thread
-    prediction_thread = threading.Thread(target=predictor.run_prediction_loop)
-    prediction_thread.daemon = True
-    prediction_thread.start()
-    
-    # Start API server
-    print("🌐 Starting API server on port 8080...")
-    predictor.app.run(host='0.0.0.0', port=8080, debug=False)
-
     def train_lstm_model(self, X, y):
         """Train LSTM model for sequential pattern learning"""
         try:
@@ -748,3 +736,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

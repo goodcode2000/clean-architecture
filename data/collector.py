@@ -209,21 +209,58 @@ class BTCDataCollector:
             # For more than 1000 intervals, we need multiple requests
             logger.info(f"Need {intervals_needed} intervals, fetching in chunks")
             
-            # Start from current time and go backwards
-            end_time = int(time.time() * 1000)  # Current time in milliseconds
+            # Calculate number of chunks needed
+            num_chunks = (intervals_needed + max_per_request - 1) // max_per_request
             
-            for chunk in range(0, intervals_needed, max_per_request):
-                chunk_size = min(max_per_request, intervals_needed - chunk)
+            # Fetch each chunk going backwards in time
+            for i in range(num_chunks):
+                chunk_size = min(max_per_request, intervals_needed - (i * max_per_request))
                 
-                # Calculate start time for this chunk
-                chunk_end_time = end_time - (chunk * self.interval_minutes * 60 * 1000)
+                # Calculate end time for this chunk (going backwards)
+                minutes_back = i * max_per_request * self.interval_minutes
+                end_time = int((time.time() - (minutes_back * 60)) * 1000)
                 
-                df = self.get_binance_data(limit=chunk_size)
-                if df is not None:
+                try:
+                    endpoint = f"{self.binance_url}/klines"
+                    params = {
+                        'symbol': 'BTCUSDT',
+                        'interval': f'{self.interval_minutes}m',
+                        'limit': chunk_size,
+                        'endTime': end_time
+                    }
+                    
+                    logger.info(f"Fetching chunk {i+1}/{num_chunks}: {chunk_size} records")
+                    response = requests.get(endpoint, params=params, timeout=10)
+                    response.raise_for_status()
+                    
+                    data = response.json()
+                    
+                    # Convert to DataFrame
+                    df = pd.DataFrame(data, columns=[
+                        'timestamp', 'open', 'high', 'low', 'close', 'volume',
+                        'close_time', 'quote_asset_volume', 'number_of_trades',
+                        'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
+                    ])
+                    
+                    # Convert timestamp to datetime
+                    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                    
+                    # Convert price columns to float
+                    price_columns = ['open', 'high', 'low', 'close', 'volume']
+                    for col in price_columns:
+                        df[col] = df[col].astype(float)
+                    
+                    # Keep only necessary columns
+                    df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
+                    
                     all_data.append(df)
+                    logger.info(f"Successfully fetched chunk {i+1}/{num_chunks}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to fetch chunk {i+1}: {e}")
                 
                 # Rate limiting - wait between requests
-                time.sleep(0.1)
+                time.sleep(0.5)
         
         # If Binance failed, try CoinGecko as backup
         if not all_data:

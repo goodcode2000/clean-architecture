@@ -25,13 +25,14 @@ class BTCDataCollector:
         # Ensure data directory exists
         os.makedirs(self.data_dir, exist_ok=True)
         
-    def get_binance_data(self, symbol: str = "BTCUSDT", limit: int = 1000) -> Optional[pd.DataFrame]:
+    def get_binance_data(self, symbol: str = "BTCUSDT", limit: int = 1000, end_time: Optional[int] = None) -> Optional[pd.DataFrame]:
         """
         Fetch BTC price data from Binance API.
         
         Args:
             symbol: Trading pair symbol (default: BTCUSDT)
             limit: Number of data points to fetch (max 1000)
+            end_time: End time in milliseconds (optional)
             
         Returns:
             DataFrame with OHLCV data or None if failed
@@ -43,6 +44,10 @@ class BTCDataCollector:
                 'interval': f'{self.interval_minutes}m',
                 'limit': limit
             }
+            
+            # Add endTime if specified
+            if end_time is not None:
+                params['endTime'] = end_time
             
             logger.info(f"Fetching data from Binance: {symbol}")
             response = requests.get(endpoint, params=params, timeout=10)
@@ -210,20 +215,32 @@ class BTCDataCollector:
             logger.info(f"Need {intervals_needed} intervals, fetching in chunks")
             
             # Start from current time and go backwards
-            end_time = int(time.time() * 1000)  # Current time in milliseconds
+            current_end_time = int(time.time() * 1000)  # Current time in milliseconds
             
-            for chunk in range(0, intervals_needed, max_per_request):
-                chunk_size = min(max_per_request, intervals_needed - chunk)
+            chunks_needed = (intervals_needed + max_per_request - 1) // max_per_request
+            logger.info(f"Fetching {chunks_needed} chunks of data...")
+            
+            for chunk_num in range(chunks_needed):
+                chunk_size = min(max_per_request, intervals_needed - (chunk_num * max_per_request))
                 
-                # Calculate start time for this chunk
-                chunk_end_time = end_time - (chunk * self.interval_minutes * 60 * 1000)
+                logger.info(f"Fetching chunk {chunk_num + 1}/{chunks_needed} ({chunk_size} records)")
                 
-                df = self.get_binance_data(limit=chunk_size)
-                if df is not None:
+                # Fetch this chunk with endTime parameter
+                df = self.get_binance_data(limit=chunk_size, end_time=current_end_time)
+                
+                if df is not None and len(df) > 0:
                     all_data.append(df)
+                    # Update end_time for next chunk (go backwards in time)
+                    oldest_time = df['timestamp'].min()
+                    current_end_time = int(oldest_time.timestamp() * 1000) - 1
+                    logger.info(f"Chunk {chunk_num + 1} fetched: {len(df)} records")
+                else:
+                    logger.warning(f"Failed to fetch chunk {chunk_num + 1}")
+                    break
                 
                 # Rate limiting - wait between requests
-                time.sleep(0.1)
+                time.sleep(0.2)
+       
         
         # If Binance failed, try CoinGecko as backup
         if not all_data:

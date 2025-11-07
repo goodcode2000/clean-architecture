@@ -6,10 +6,11 @@ load_dotenv()
 
 class Config:
     # API Configuration
-    BINANCE_API_URL = "https://api.binance.com/api/v3"
+    COINBASE_API_URL = "https://api.exchange.coinbase.com"
     COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
     
     # Data Configuration
+    SYMBOL = "TAO-USD"  # TAO/USD trading pair
     DATA_INTERVAL_MINUTES = 5
     HISTORICAL_DAYS = 90
     PREDICTION_HORIZON_MINUTES = 5
@@ -57,6 +58,7 @@ class Config:
     MODELS_DIR = "models/saved"
     LOGS_DIR = "logs"
     PREDICTIONS_FILE = "data/predictions.csv"
+    HISTORICAL_DATA_FILE = "data/tao_historical.csv"
     
     # GPU Configuration
     USE_GPU = True

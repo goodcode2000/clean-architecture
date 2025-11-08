@@ -421,21 +421,38 @@ class DataPreprocessor:
         """
         try:
             df_clean = df.copy()
+            initial_count = len(df_clean)
             
             # Remove rows with too many missing values
             missing_threshold = 0.5  # Remove rows with >50% missing values
             df_clean = df_clean.dropna(thresh=int(len(df_clean.columns) * missing_threshold))
+            logger.debug(f"After missing threshold: {len(df_clean)} records")
             
             # Forward fill remaining missing values (limited)
             df_clean = df_clean.ffill(limit=3)
+            logger.debug(f"After ffill: {len(df_clean)} records")
             
             # Remove any remaining rows with missing values
             df_clean = df_clean.dropna()
+            logger.debug(f"After dropna: {len(df_clean)} records")
+            
+            if len(df_clean) == 0:
+                logger.error("All data removed during cleaning - returning original data")
+                return df
             
             # Remove infinite values
             numeric_columns = df_clean.select_dtypes(include=[np.number]).columns
             for col in numeric_columns:
-                df_clean = df_clean[~np.isinf(df_clean[col])]
+                inf_mask = np.isinf(df_clean[col])
+                if inf_mask.any():
+                    logger.debug(f"Removing {inf_mask.sum()} infinite values from {col}")
+                    df_clean = df_clean[~inf_mask]
+            
+            logger.debug(f"After removing infinites: {len(df_clean)} records")
+            
+            if len(df_clean) == 0:
+                logger.error("All data removed after infinite value removal - returning original data")
+                return df
             
             # Remove extreme outliers (beyond 5 standard deviations)
             for col in numeric_columns:
@@ -445,11 +462,20 @@ class DataPreprocessor:
                     
                     if std_val > 0:  # Avoid division by zero
                         outlier_mask = np.abs(df_clean[col] - mean_val) > (5 * std_val)
+                        outlier_count = outlier_mask.sum()
+                        if outlier_count > 0:
+                            logger.debug(f"Removing {outlier_count} outliers from {col}")
                         df_clean = df_clean[~outlier_mask]
             
-            logger.info(f"Data cleaning: {len(df)} -> {len(df_clean)} records")
+            logger.info(f"Data cleaning: {initial_count} -> {len(df_clean)} records")
+            
+            if len(df_clean) < 100:
+                logger.warning(f"Only {len(df_clean)} records remaining after cleaning - may be insufficient")
+            
             return df_clean
             
         except Exception as e:
             logger.error(f"Data cleaning failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return df

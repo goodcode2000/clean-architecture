@@ -740,20 +740,31 @@ class EnhancedBTCPredictor:
                     else:
                         new_weights[model_name] = self.model_weights[model_name]
                 
-                # Ensure XGBoost has minimum 0.2 weight for rapid price changes
+                # Ensure minimum weights for main models
+                # LSTM: minimum 0.5 (50%) - deep learning for patterns
+                # XGBoost: minimum 0.2 (20%) - rapid price changes
+                
+                if 'lstm' in new_weights and new_weights['lstm'] < 0.5:
+                    new_weights['lstm'] = 0.5
+                
                 if 'xgboost' in new_weights and new_weights['xgboost'] < 0.2:
-                    # Calculate how much weight to redistribute
-                    deficit = 0.2 - new_weights['xgboost']
                     new_weights['xgboost'] = 0.2
-                    
-                    # Reduce other models proportionally
-                    other_models = [m for m in new_weights if m != 'xgboost']
-                    total_other = sum(new_weights[m] for m in other_models)
-                    
-                    if total_other > 0:
-                        for model_name in other_models:
-                            reduction = (new_weights[model_name] / total_other) * deficit
-                            new_weights[model_name] = max(0, new_weights[model_name] - reduction)
+                
+                # Redistribute remaining weight (0.3) among other models
+                remaining_weight = 1.0 - 0.5 - 0.2  # 0.3 for ARIMA, SVM, RF
+                other_models = ['arima', 'svm', 'boruta_rf']
+                
+                # Calculate proportional weights for other models
+                other_scores = {m: model_scores.get(m, 0.5) for m in other_models}
+                total_other_score = sum(other_scores.values())
+                
+                if total_other_score > 0:
+                    for model_name in other_models:
+                        new_weights[model_name] = (other_scores[model_name] / total_other_score) * remaining_weight
+                else:
+                    # Equal distribution if no scores
+                    for model_name in other_models:
+                        new_weights[model_name] = remaining_weight / len(other_models)
                 
                 # Ensure weights sum to 1
                 total_weight = sum(new_weights.values())

@@ -516,8 +516,10 @@ class EnhancedBTCPredictor:
                             for i in range(10, 20):
                                 sequences.append(recent_prices[i-10:i])
                             
-                            X_lstm_seq = np.array([sequences])  # Shape: (1, 10, 10)
-                            X_lstm_scaled = self.scalers['lstm'].transform(X_lstm_seq.reshape(1, -1))
+                            X_lstm_seq = np.array(sequences)  # Shape: (10, 10)
+                            # Scale each sequence separately (10 features per sequence)
+                            X_lstm_scaled = self.scalers['lstm'].transform(X_lstm_seq)
+                            # Reshape to (1, 10, 10) for prediction
                             X_lstm_reshaped = X_lstm_scaled.reshape(1, 10, 10)
                             
                             lstm_pred = self.models['lstm'].predict(X_lstm_reshaped, verbose=0)[0][0]
@@ -737,6 +739,21 @@ class EnhancedBTCPredictor:
                         new_weights[model_name] = 0.7 * self.model_weights[model_name] + 0.3 * new_weight
                     else:
                         new_weights[model_name] = self.model_weights[model_name]
+                
+                # Ensure XGBoost has minimum 0.2 weight for rapid price changes
+                if 'xgboost' in new_weights and new_weights['xgboost'] < 0.2:
+                    # Calculate how much weight to redistribute
+                    deficit = 0.2 - new_weights['xgboost']
+                    new_weights['xgboost'] = 0.2
+                    
+                    # Reduce other models proportionally
+                    other_models = [m for m in new_weights if m != 'xgboost']
+                    total_other = sum(new_weights[m] for m in other_models)
+                    
+                    if total_other > 0:
+                        for model_name in other_models:
+                            reduction = (new_weights[model_name] / total_other) * deficit
+                            new_weights[model_name] = max(0, new_weights[model_name] - reduction)
                 
                 # Ensure weights sum to 1
                 total_weight = sum(new_weights.values())

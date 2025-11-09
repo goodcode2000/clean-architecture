@@ -29,9 +29,6 @@ from sklearn.metrics import mean_absolute_error
 import lightgbm as lgb
 from statsmodels.tsa.arima.model import ARIMA
 
-# Technical indicators
-import pandas_ta as ta
-
 # Deep Learning
 try:
     from tensorflow.keras.models import Sequential
@@ -393,126 +390,156 @@ class EnhancedBTCPredictor:
             print(f"❌ Historical data loading error: {e}")
             return []
     
+    def calculate_rsi(self, prices, period=14):
+        """Calculate RSI manually"""
+        deltas = np.diff(prices)
+        gains = np.where(deltas > 0, deltas, 0)
+        losses = np.where(deltas < 0, -deltas, 0)
+        
+        avg_gain = np.convolve(gains, np.ones(period)/period, mode='valid')
+        avg_loss = np.convolve(losses, np.ones(period)/period, mode='valid')
+        
+        rs = avg_gain / (avg_loss + 1e-10)
+        rsi = 100 - (100 / (1 + rs))
+        return rsi
+    
+    def calculate_ema(self, prices, period):
+        """Calculate EMA manually"""
+        ema = np.zeros(len(prices))
+        ema[0] = prices[0]
+        multiplier = 2 / (period + 1)
+        
+        for i in range(1, len(prices)):
+            ema[i] = (prices[i] * multiplier) + (ema[i-1] * (1 - multiplier))
+        
+        return ema
+    
     def calculate_technical_indicators(self, data):
-        """Calculate comprehensive technical indicators and features"""
+        """Calculate comprehensive technical indicators manually"""
         try:
             if len(data) < 50:
                 return None
             
-            # Convert to pandas DataFrame
-            df = pd.DataFrame(data)
-            df['close'] = df['close'].astype(float)
-            df['high'] = df['high'].astype(float)
-            df['low'] = df['low'].astype(float)
-            df['open'] = df['open'].astype(float)
-            df['volume'] = df['volume'].astype(float)
-            
-            # Calculate technical indicators using pandas_ta
-            # RSI
-            df['rsi'] = ta.rsi(df['close'], length=14)
-            
-            # MACD
-            macd = ta.macd(df['close'])
-            df['macd'] = macd['MACD_12_26_9']
-            df['macd_signal'] = macd['MACDs_12_26_9']
-            df['macd_hist'] = macd['MACDh_12_26_9']
-            
-            # Bollinger Bands
-            bbands = ta.bbands(df['close'], length=20)
-            df['bb_upper'] = bbands['BBU_20_2.0']
-            df['bb_middle'] = bbands['BBM_20_2.0']
-            df['bb_lower'] = bbands['BBL_20_2.0']
-            
-            # ATR
-            df['atr'] = ta.atr(df['high'], df['low'], df['close'], length=14)
-            
-            # Stochastic
-            stoch = ta.stoch(df['high'], df['low'], df['close'])
-            df['stoch_k'] = stoch['STOCHk_14_3_3']
-            df['stoch_d'] = stoch['STOCHd_14_3_3']
-            
-            # EMAs
-            df['ema_12'] = ta.ema(df['close'], length=12)
-            df['ema_26'] = ta.ema(df['close'], length=26)
-            
-            # SMAs
-            df['sma_5'] = ta.sma(df['close'], length=5)
-            df['sma_10'] = ta.sma(df['close'], length=10)
-            df['sma_20'] = ta.sma(df['close'], length=20)
-            
-            # Fill NaN values
-            df = df.fillna(method='bfill').fillna(method='ffill')
+            # Convert to numpy arrays
+            close = np.array([d['close'] for d in data], dtype=float)
+            high = np.array([d['high'] for d in data], dtype=float)
+            low = np.array([d['low'] for d in data], dtype=float)
+            open_price = np.array([d['open'] for d in data], dtype=float)
+            volume = np.array([d['volume'] for d in data], dtype=float)
             
             features = []
             
+            # Pre-calculate indicators
+            # RSI
+            rsi_values = self.calculate_rsi(close, 14)
+            
+            # EMAs
+            ema_12 = self.calculate_ema(close, 12)
+            ema_26 = self.calculate_ema(close, 26)
+            
+            # MACD
+            macd_line = ema_12 - ema_26
+            macd_signal = self.calculate_ema(macd_line, 9)
+            macd_hist = macd_line - macd_signal
+            
             # Build feature vectors (skip first 50 for indicator warmup)
-            for i in range(50, len(df)):
+            for i in range(50, len(data)):
                 feature_vector = []
                 
                 # 1. Basic OHLCV features
-                feature_vector.append(df['close'].iloc[i])
-                feature_vector.append(df['high'].iloc[i])
-                feature_vector.append(df['low'].iloc[i])
-                feature_vector.append(df['open'].iloc[i])
-                feature_vector.append(df['volume'].iloc[i])
+                feature_vector.append(close[i])
+                feature_vector.append(high[i])
+                feature_vector.append(low[i])
+                feature_vector.append(open_price[i])
+                feature_vector.append(volume[i])
                 
                 # 2. Price-based features
-                feature_vector.append(df['close'].iloc[i] - df['open'].iloc[i])  # Close-Open
-                feature_vector.append(df['high'].iloc[i] - df['low'].iloc[i])  # High-Low range
-                feature_vector.append((df['close'].iloc[i] - df['close'].iloc[i-1]) / df['close'].iloc[i-1] * 100)  # Price change %
+                feature_vector.append(close[i] - open_price[i])  # Close-Open
+                feature_vector.append(high[i] - low[i])  # High-Low range
+                if i > 0:
+                    feature_vector.append((close[i] - close[i-1]) / close[i-1] * 100)  # Price change %
+                else:
+                    feature_vector.append(0)
                 
-                # 3. Moving Averages
-                feature_vector.append(df['sma_5'].iloc[i])
-                feature_vector.append(df['sma_10'].iloc[i])
-                feature_vector.append(df['sma_20'].iloc[i])
-                feature_vector.append(df['close'].iloc[i] - df['sma_5'].iloc[i])  # Distance from SMA5
-                feature_vector.append(df['close'].iloc[i] - df['sma_20'].iloc[i])  # Distance from SMA20
+                # 3. Simple Moving Averages
+                sma_5 = np.mean(close[max(0, i-4):i+1])
+                sma_10 = np.mean(close[max(0, i-9):i+1])
+                sma_20 = np.mean(close[max(0, i-19):i+1])
+                feature_vector.append(sma_5)
+                feature_vector.append(sma_10)
+                feature_vector.append(sma_20)
+                feature_vector.append(close[i] - sma_5)  # Distance from SMA5
+                feature_vector.append(close[i] - sma_20)  # Distance from SMA20
                 
                 # 4. RSI
-                feature_vector.append(df['rsi'].iloc[i])
+                rsi_idx = i - 15  # Account for RSI calculation offset
+                if rsi_idx >= 0 and rsi_idx < len(rsi_values):
+                    feature_vector.append(rsi_values[rsi_idx])
+                else:
+                    feature_vector.append(50)
                 
                 # 5. MACD
-                feature_vector.append(df['macd'].iloc[i])
-                feature_vector.append(df['macd_signal'].iloc[i])
-                feature_vector.append(df['macd_hist'].iloc[i])
+                feature_vector.append(macd_line[i])
+                feature_vector.append(macd_signal[i])
+                feature_vector.append(macd_hist[i])
                 
                 # 6. Bollinger Bands
-                feature_vector.append(df['bb_upper'].iloc[i])
-                feature_vector.append(df['bb_lower'].iloc[i])
-                bb_range = df['bb_upper'].iloc[i] - df['bb_lower'].iloc[i]
-                bb_position = (df['close'].iloc[i] - df['bb_lower'].iloc[i]) / bb_range if bb_range > 0 else 0.5
+                bb_sma = sma_20
+                bb_std = np.std(close[max(0, i-19):i+1])
+                bb_upper = bb_sma + (2 * bb_std)
+                bb_lower = bb_sma - (2 * bb_std)
+                feature_vector.append(bb_upper)
+                feature_vector.append(bb_lower)
+                bb_range = bb_upper - bb_lower
+                bb_position = (close[i] - bb_lower) / bb_range if bb_range > 0 else 0.5
                 feature_vector.append(bb_position)
                 
-                # 7. ATR
-                feature_vector.append(df['atr'].iloc[i])
+                # 7. ATR (Average True Range)
+                if i >= 14:
+                    tr_values = []
+                    for j in range(i-13, i+1):
+                        tr = max(
+                            high[j] - low[j],
+                            abs(high[j] - close[j-1]) if j > 0 else 0,
+                            abs(low[j] - close[j-1]) if j > 0 else 0
+                        )
+                        tr_values.append(tr)
+                    atr = np.mean(tr_values)
+                    feature_vector.append(atr)
+                else:
+                    feature_vector.append(0)
                 
-                # 8. Stochastic
-                feature_vector.append(df['stoch_k'].iloc[i])
-                feature_vector.append(df['stoch_d'].iloc[i])
+                # 8. Stochastic Oscillator
+                if i >= 14:
+                    lowest_low = np.min(low[i-13:i+1])
+                    highest_high = np.max(high[i-13:i+1])
+                    stoch_k = ((close[i] - lowest_low) / (highest_high - lowest_low) * 100) if highest_high != lowest_low else 50
+                    feature_vector.append(stoch_k)
+                    # Simple moving average of %K for %D
+                    if i >= 16:
+                        stoch_d = np.mean([
+                            ((close[j] - np.min(low[j-13:j+1])) / (np.max(high[j-13:j+1]) - np.min(low[j-13:j+1]) + 1e-10) * 100)
+                            for j in range(i-2, i+1)
+                        ])
+                        feature_vector.append(stoch_d)
+                    else:
+                        feature_vector.append(50)
+                else:
+                    feature_vector.append(50)
+                    feature_vector.append(50)
                 
                 # 9. Volume indicators
-                volume_sma = df['volume'].iloc[i-20:i+1].mean()
-                feature_vector.append(df['volume'].iloc[i] / volume_sma if volume_sma > 0 else 1)
+                volume_sma = np.mean(volume[max(0, i-19):i+1])
+                feature_vector.append(volume[i] / volume_sma if volume_sma > 0 else 1)
                 
                 # 10. Momentum
-                momentum = df['close'].iloc[i] - df['close'].iloc[i-10]
+                momentum = close[i] - close[max(0, i-10)]
                 feature_vector.append(momentum)
                 
-                # 11. Volatility
-                volatility = df['close'].iloc[i-20:i+1].std()
+                # 11. Volatility (standard deviation)
+                volatility = np.std(close[max(0, i-19):i+1])
                 feature_vector.append(volatility)
-                
-                # 12. EMAs
-                feature_vector.append(df['ema_12'].iloc[i])
-                feature_vector.append(df['ema_26'].iloc[i])
-                
-                features.append(feature_vector)
-            
-            return np.array(features)
-            
-        except Exception as e:
-            print(f"⚠️ Technical indicator calculation error: {e}")
-            return None
+        
     
     def train_models(self):
         """Train all models using comprehensive OHLCV and technical indicators"""

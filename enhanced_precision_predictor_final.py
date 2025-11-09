@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Enhanced High-Precision BTC Predictor - Final Version
+Enhanced High-Precision TAO Predictor - Final Version
 New Architecture: ARIMA + SVM + Boruta+RF + LightGBM
 90-day historical data management with 5-minute updates
-Target: $20-60 USD accuracy with rapid change detection
+Target: $0-1 USD accuracy with rapid change detection
 """
 
 import requests
@@ -40,7 +40,7 @@ except ImportError:
     TENSORFLOW_AVAILABLE = False
     print("⚠️ TensorFlow not available - LSTM model disabled")
 
-class EnhancedBTCPredictor:
+class EnhancedTAOPredictor:
     def __init__(self):
         self.app = Flask(__name__)
         CORS(self.app)
@@ -114,7 +114,7 @@ class EnhancedBTCPredictor:
         # Enhanced performance tracking for rapid change detection
         self.directional_accuracy = 0.0
         self.price_direction_history = []
-        self.target_accuracy = 45  # $20-60 USD range (middle: $40, ±$20 tolerance)
+        self.target_accuracy = 0.5  # $0-1 USD range (middle: $0.5, ±$0.5 tolerance)
         
         # 90-day historical data management
         self.last_5min_update = None
@@ -136,7 +136,8 @@ class EnhancedBTCPredictor:
                 "timestamp": datetime.now().isoformat(),
                 "version": "3.0.0-enhanced",
                 "models": "ARIMA+SVM+Boruta+RF+LightGBM+LSTM",
-                "target_accuracy": "$20-60 USD"
+                "target_accuracy": "$0-1 USD",
+                "asset": "TAO"
             })
         
         @self.app.route('/api/current-price')
@@ -203,7 +204,8 @@ class EnhancedBTCPredictor:
                     "models_trained": sum(self.models_trained.values()),
                     "historical_data_points": historical_count,
                     "data_range": "90 days",
-                    "target_accuracy": "$20-60 USD",
+                    "target_accuracy": "$0-1 USD",
+                    "asset": "TAO",
                     "last_update": datetime.now().isoformat()
                 })
             except Exception as e:
@@ -217,7 +219,7 @@ class EnhancedBTCPredictor:
                 df = pd.read_csv('data/historical_real.csv')
                 print(f"✅ Loaded {len(df)} historical price points")
             else:
-                print("📈 Fetching 90 days of historical BTC data...")
+                print("📈 Fetching 90 days of historical TAO data...")
                 self.fetch_90_days_historical_data()
         except Exception as e:
             print(f"⚠️ Historical data initialization error: {e}")
@@ -225,7 +227,7 @@ class EnhancedBTCPredictor:
     def fetch_90_days_historical_data(self):
         """Fetch 90 days of 5-minute historical data from Binance"""
         try:
-            print("🔄 Downloading 90 days of BTC price data...")
+            print("🔄 Downloading 90 days of TAO price data...")
             
             # Calculate time range
             end_time = datetime.now()
@@ -239,7 +241,7 @@ class EnhancedBTCPredictor:
                 chunk_end = min(current_time + timedelta(days=1), end_time)
                 
                 params = {
-                    "symbol": "BTCUSDT",
+                    "symbol": "TAOUSDT",
                     "interval": "5m",
                     "startTime": int(current_time.timestamp() * 1000),
                     "endTime": int(chunk_end.timestamp() * 1000),
@@ -274,13 +276,13 @@ class EnhancedBTCPredictor:
             print(f"❌ 90-day data fetch error: {e}")
             return False
     
-    def fetch_btc_data(self):
-        """Fetch comprehensive BTC data including OHLCV and market data"""
+    def fetch_tao_data(self):
+        """Fetch comprehensive TAO data including OHLCV and market data"""
         try:
             # Fetch OHLCV data (1-minute klines)
             kline_url = "https://api.binance.com/api/v3/klines"
             kline_params = {
-                "symbol": "BTCUSDT",
+                "symbol": "TAOUSDT",
                 "interval": "1m",
                 "limit": 1
             }
@@ -362,7 +364,7 @@ class EnhancedBTCPredictor:
             print("📊 Fetching historical OHLCV data for training...")
             kline_url = "https://api.binance.com/api/v3/klines"
             kline_params = {
-                "symbol": "BTCUSDT",
+                "symbol": "TAOUSDT",
                 "interval": "5m",
                 "limit": 1000  # Last 1000 5-minute candles
             }
@@ -756,9 +758,9 @@ class EnhancedBTCPredictor:
     
     def run_prediction_loop(self):
         """Main prediction loop with 1-minute intervals, predicting 5 minutes ahead"""
-        print("🚀 Starting Enhanced BTC Predictor...")
+        print("🚀 Starting Enhanced TAO Predictor...")
         print("📊 Models: ARIMA + SVM + Boruta+RF + LightGBM + LSTM")
-        print("🎯 Target: $20-60 USD accuracy with rapid change detection")
+        print("🎯 Target: $0-1 USD accuracy with rapid change detection")
         print("📈 90-day historical data management enabled")
         print("🔮 Prediction: 5 minutes ahead")
         print("="*60)
@@ -778,8 +780,8 @@ class EnhancedBTCPredictor:
                 prediction_time = datetime.now().replace(second=0, microsecond=0)
                 
                 # Fetch data every minute
-                if self.fetch_btc_data():
-                    print(f"💰 Current BTC Price: ${self.current_price:,.2f}")
+                if self.fetch_tao_data():
+                    print(f"💰 Current TAO Price: ${self.current_price:,.2f}")
                     
                     # Train models periodically with 90-day data
                     retrain_counter += 1
@@ -1024,7 +1026,7 @@ class EnhancedBTCPredictor:
             print(f"⚠️ Weight adjustment error: {e}")
 
 def main():
-    predictor = EnhancedBTCPredictor()
+    predictor = EnhancedTAOPredictor()
     
     # Start prediction loop in thread
     prediction_thread = threading.Thread(target=predictor.run_prediction_loop)
@@ -1032,8 +1034,8 @@ def main():
     prediction_thread.start()
     
     # Start API server
-    print("🌐 Starting API server on port 8000...")
-    predictor.app.run(host='0.0.0.0', port=8000, debug=False)
+    print("🌐 Starting API server on port 3001...")
+    predictor.app.run(host='0.0.0.0', port=3001, debug=False)
 
 if __name__ == "__main__":
     main()

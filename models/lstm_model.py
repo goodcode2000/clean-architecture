@@ -53,21 +53,24 @@ class LSTMPredictor:
         try:
             model = Sequential()
             
-            # First LSTM layer
-            model.add(LSTM(
-                self.layers[0], 
-                return_sequences=True, 
-                input_shape=input_shape
-            ))
-            model.add(Dropout(0.2))
-            
-            # Second LSTM layer
-            model.add(LSTM(self.layers[1], return_sequences=True))
-            model.add(Dropout(0.2))
-            
-            # Third LSTM layer
-            model.add(LSTM(self.layers[2], return_sequences=False))
-            model.add(Dropout(0.2))
+            # Build LSTM layers dynamically based on configuration
+            for i, units in enumerate(self.layers):
+                if i == 0:
+                    # First layer with input shape
+                    model.add(LSTM(
+                        units, 
+                        return_sequences=(i < len(self.layers) - 1),  # Return sequences if not last layer
+                        input_shape=input_shape
+                    ))
+                else:
+                    # Subsequent layers
+                    model.add(LSTM(
+                        units, 
+                        return_sequences=(i < len(self.layers) - 1)  # Return sequences if not last layer
+                    ))
+                
+                # Add dropout after each LSTM layer
+                model.add(Dropout(0.2))
             
             # Output layer
             model.add(Dense(1))
@@ -84,6 +87,8 @@ class LSTMPredictor:
             
         except Exception as e:
             logger.error(f"Failed to build LSTM model: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
     
     def train(self, df: pd.DataFrame, validation_split: float = 0.2) -> bool:

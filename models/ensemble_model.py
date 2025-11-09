@@ -83,6 +83,10 @@ class EnsemblePredictor:
             # Clean data
             clean_df = self.preprocessor.clean_data_for_training(features_df)
             
+            if len(clean_df) == 0:
+                logger.error("Data cleaning removed all records")
+                return {}
+            
             # Prepare data for different model types
             prepared_data = {
                 'raw_df': df,

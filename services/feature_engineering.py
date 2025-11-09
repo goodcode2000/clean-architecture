@@ -403,14 +403,26 @@ class FeatureEngineer:
             features_df = self.detect_outliers(features_df)
             
             # Remove rows with NaN values (from rolling calculations)
+            # Only remove rows where critical columns have NaN
             initial_rows = len(features_df)
-            features_df = features_df.dropna()
+            
+            # First, forward fill to handle minor gaps
+            features_df = features_df.ffill(limit=5)
+            
+            # Then remove rows with too many NaN values (>50% of columns)
+            threshold = len(features_df.columns) * 0.5
+            features_df = features_df.dropna(thresh=int(threshold))
+            
             final_rows = len(features_df)
             
             if initial_rows != final_rows:
                 logger.info(f"Removed {initial_rows - final_rows} rows with NaN values")
             
-            logger.info(f"Feature engineering completed: {len(features_df.columns)} features created")
+            if len(features_df) == 0:
+                logger.error(f"Feature engineering failed: All {initial_rows} rows removed by dropna()")
+                return pd.DataFrame()  # Return empty DataFrame
+            
+            logger.info(f"Feature engineering completed: {len(features_df)} rows, {len(features_df.columns)} features created")
             return features_df
             
         except Exception as e:

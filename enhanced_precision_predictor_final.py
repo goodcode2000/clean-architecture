@@ -29,6 +29,9 @@ from sklearn.metrics import mean_absolute_error
 import lightgbm as lgb
 from statsmodels.tsa.arima.model import ARIMA
 
+# Technical indicators
+import talib
+
 # Deep Learning
 try:
     from tensorflow.keras.models import Sequential
@@ -275,30 +278,40 @@ class EnhancedBTCPredictor:
             return False
     
     def fetch_btc_data(self):
-        """Fetch current BTC data and update historical file every 5 minutes"""
+        """Fetch comprehensive BTC data including OHLCV and market data"""
         try:
-            url = "https://api.binance.com/api/v3/ticker/price"
-            response = requests.get(url, params={"symbol": "BTCUSDT"}, timeout=10)
-            if response.status_code == 200:
-                price_data = response.json()
-                current_price = float(price_data['price'])
+            # Fetch OHLCV data (1-minute klines)
+            kline_url = "https://api.binance.com/api/v3/klines"
+            kline_params = {
+                "symbol": "BTCUSDT",
+                "interval": "1m",
+                "limit": 1
+            }
+            kline_response = requests.get(kline_url, params=kline_params, timeout=10)
+            
+            if kline_response.status_code == 200:
+                kline_data = kline_response.json()[0]
                 
-                # Store data in memory
                 timestamp = datetime.now()
                 data_point = {
                     'timestamp': timestamp,
-                    'price': current_price
+                    'open': float(kline_data[1]),
+                    'high': float(kline_data[2]),
+                    'low': float(kline_data[3]),
+                    'close': float(kline_data[4]),
+                    'volume': float(kline_data[5]),
+                    'price': float(kline_data[4])  # Close price
                 }
                 
                 self.price_history.append(data_point)
-                self.current_price = current_price
+                self.current_price = data_point['close']
                 
                 # Keep last 2000 points in memory (about 7 days at 5-min intervals)
                 if len(self.price_history) > 2000:
                     self.price_history = self.price_history[-2000:]
                 
                 # Update historical_real.csv every 5 minutes
-                self.update_historical_real_csv(timestamp, current_price)
+                self.update_historical_real_csv(timestamp, data_point['close'])
                 
                 return True
         except Exception as e:
@@ -346,48 +359,168 @@ class EnhancedBTCPredictor:
             print(f"⚠️ Historical CSV update error: {e}")
     
     def load_historical_data_for_training(self):
-        """Load 90-day historical data for model training"""
+        """Load 90-day historical OHLCV data for model training"""
         try:
-            if os.path.exists('data/historical_real.csv'):
-                df = pd.read_csv('data/historical_real.csv')
+            # Fetch historical OHLCV data from Binance
+            print("📊 Fetching historical OHLCV data for training...")
+            kline_url = "https://api.binance.com/api/v3/klines"
+            kline_params = {
+                "symbol": "BTCUSDT",
+                "interval": "5m",
+                "limit": 1000  # Last 1000 5-minute candles
+            }
+            response = requests.get(kline_url, params=kline_params, timeout=30)
+            
+            if response.status_code == 200:
+                klines = response.json()
+                training_data = []
                 
-                # Convert to training format
-                training_prices = []
-                for _, row in df.iterrows():
-                    training_prices.append(float(row['price']))
+                for kline in klines:
+                    training_data.append({
+                        'open': float(kline[1]),
+                        'high': float(kline[2]),
+                        'low': float(kline[3]),
+                        'close': float(kline[4]),
+                        'volume': float(kline[5])
+                    })
                 
-                print(f"📈 Loaded {len(training_prices)} historical points for training")
-                return training_prices
+                print(f"📈 Loaded {len(training_data)} historical OHLCV points for training")
+                return training_data
             else:
-                print("⚠️ No historical_real.csv found for training")
+                print("⚠️ Failed to fetch historical OHLCV data")
                 return []
         except Exception as e:
             print(f"❌ Historical data loading error: {e}")
             return []
     
-    def train_models(self):
-        """Train all models using 90-day historical data for improved accuracy"""
+    def calculate_technical_indicators(self, data):
+        """Calculate comprehensive technical indicators and features"""
         try:
-            # Load 90-day historical data for training
-            historical_prices = self.load_historical_data_for_training()
+            if len(data) < 50:
+                return None
             
-            # Combine with recent memory data
-            recent_prices = [p['price'] for p in self.price_history[-100:]]
+            # Convert to numpy arrays
+            close = np.array([d['close'] for d in data])
+            high = np.array([d['high'] for d in data])
+            low = np.array([d['low'] for d in data])
+            open_price = np.array([d['open'] for d in data])
+            volume = np.array([d['volume'] for d in data])
             
-            # Use historical data if available, otherwise use recent data
-            if len(historical_prices) > 1000:
-                prices = historical_prices
-                print(f"🎯 Training with {len(prices)} historical points (90 days)")
-            elif len(recent_prices) >= 50:
-                prices = recent_prices
-                print(f"🎯 Training with {len(prices)} recent points")
-            else:
+            features = []
+            
+            # Calculate indicators for each point (skip first 50 for indicator warmup)
+            for i in range(50, len(data)):
+                feature_vector = []
+                
+                # 1. Basic OHLCV features
+                feature_vector.append(close[i])
+                feature_vector.append(high[i])
+                feature_vector.append(low[i])
+                feature_vector.append(open_price[i])
+                feature_vector.append(volume[i])
+                
+                # 2. Price-based features
+                feature_vector.append(close[i] - open_price[i])  # Close-Open
+                feature_vector.append(high[i] - low[i])  # High-Low range
+                feature_vector.append((close[i] - close[i-1]) / close[i-1] * 100)  # Price change %
+                
+                # 3. Moving Averages
+                sma_5 = np.mean(close[i-5:i+1])
+                sma_10 = np.mean(close[i-10:i+1])
+                sma_20 = np.mean(close[i-20:i+1])
+                feature_vector.append(sma_5)
+                feature_vector.append(sma_10)
+                feature_vector.append(sma_20)
+                feature_vector.append(close[i] - sma_5)  # Distance from SMA5
+                feature_vector.append(close[i] - sma_20)  # Distance from SMA20
+                
+                # 4. RSI (Relative Strength Index)
+                rsi = talib.RSI(close[:i+1], timeperiod=14)[-1]
+                feature_vector.append(rsi if not np.isnan(rsi) else 50)
+                
+                # 5. MACD
+                macd, signal, hist = talib.MACD(close[:i+1])
+                feature_vector.append(macd[-1] if not np.isnan(macd[-1]) else 0)
+                feature_vector.append(signal[-1] if not np.isnan(signal[-1]) else 0)
+                feature_vector.append(hist[-1] if not np.isnan(hist[-1]) else 0)
+                
+                # 6. Bollinger Bands
+                upper, middle, lower = talib.BBANDS(close[:i+1], timeperiod=20)
+                bb_upper = upper[-1] if not np.isnan(upper[-1]) else close[i]
+                bb_lower = lower[-1] if not np.isnan(lower[-1]) else close[i]
+                feature_vector.append(bb_upper)
+                feature_vector.append(bb_lower)
+                feature_vector.append((close[i] - bb_lower) / (bb_upper - bb_lower) if bb_upper != bb_lower else 0.5)  # BB position
+                
+                # 7. ATR (Average True Range) - Volatility
+                atr = talib.ATR(high[:i+1], low[:i+1], close[:i+1], timeperiod=14)[-1]
+                feature_vector.append(atr if not np.isnan(atr) else 0)
+                
+                # 8. Stochastic Oscillator
+                slowk, slowd = talib.STOCH(high[:i+1], low[:i+1], close[:i+1])
+                feature_vector.append(slowk[-1] if not np.isnan(slowk[-1]) else 50)
+                feature_vector.append(slowd[-1] if not np.isnan(slowd[-1]) else 50)
+                
+                # 9. Volume indicators
+                volume_sma = np.mean(volume[i-20:i+1])
+                feature_vector.append(volume[i] / volume_sma if volume_sma > 0 else 1)  # Volume ratio
+                
+                # 10. Momentum
+                momentum = close[i] - close[i-10]
+                feature_vector.append(momentum)
+                
+                # 11. Volatility (standard deviation)
+                volatility = np.std(close[i-20:i+1])
+                feature_vector.append(volatility)
+                
+                # 12. EMA (Exponential Moving Average)
+                ema_12 = talib.EMA(close[:i+1], timeperiod=12)[-1]
+                ema_26 = talib.EMA(close[:i+1], timeperiod=26)[-1]
+                feature_vector.append(ema_12 if not np.isnan(ema_12) else close[i])
+                feature_vector.append(ema_26 if not np.isnan(ema_26) else close[i])
+                
+                features.append(feature_vector)
+            
+            return np.array(features)
+            
+        except Exception as e:
+            print(f"⚠️ Technical indicator calculation error: {e}")
+            return None
+    
+    def train_models(self):
+        """Train all models using comprehensive OHLCV and technical indicators"""
+        try:
+            # Load historical OHLCV data
+            historical_data = self.load_historical_data_for_training()
+            
+            if len(historical_data) < 100:
                 print("❌ Insufficient data for training")
                 return False
             
-            # Train ARIMA
+            print(f"🎯 Training with {len(historical_data)} historical OHLCV points")
+            
+            # Calculate technical indicators and features
+            X_features = self.calculate_technical_indicators(historical_data)
+            
+            if X_features is None or len(X_features) < 50:
+                print("❌ Failed to calculate technical indicators")
+                return False
+            
+            # Prepare targets (predict 2 steps ahead)
+            prices = np.array([d['close'] for d in historical_data])
+            y = prices[52:]  # Target: price 2 steps ahead (accounting for 50 warmup + 2 ahead)
+            X = X_features[:-2]  # Features aligned with targets
+            
+            if len(X) != len(y):
+                min_len = min(len(X), len(y))
+                X = X[:min_len]
+                y = y[:min_len]
+            
+            print(f"📊 Feature matrix shape: {X.shape}, Target shape: {y.shape}")
+            
+            # Train ARIMA (using close prices only)
             try:
-                model = ARIMA(prices, order=(2, 1, 2))
+                model = ARIMA(prices[-500:], order=(2, 1, 2))
                 fitted_model = model.fit()
                 self.models['arima'] = fitted_model
                 self.models_trained['arima'] = True
@@ -395,55 +528,41 @@ class EnhancedBTCPredictor:
             except:
                 print("⚠️ ARIMA training failed")
             
-            # For ML models, create simple features
-            if len(prices) >= 20:
-                X = []
-                y = []
+            # Train ML models with rich features
+            if len(X) >= 50:
+                # Train SVM
+                try:
+                    X_svm = self.scalers['svm'].fit_transform(X)
+                    self.models['svm'].fit(X_svm, y)
+                    self.models_trained['svm'] = True
+                    print("✅ SVM trained with technical indicators")
+                except Exception as e:
+                    print(f"⚠️ SVM training failed: {e}")
                 
-                for i in range(10, len(prices) - 2):
-                    # Simple features: last 10 prices
-                    features = prices[i-10:i]
-                    target = prices[i+2]  # 2 steps ahead
-                    X.append(features)
-                    y.append(target)
+                # Train RF
+                try:
+                    X_rf = self.scalers['boruta_rf'].fit_transform(X)
+                    self.models['boruta_rf'].fit(X_rf, y)
+                    self.models_trained['boruta_rf'] = True
+                    print("✅ Boruta+RF trained with technical indicators")
+                except Exception as e:
+                    print(f"⚠️ Boruta+RF training failed: {e}")
                 
-                if len(X) >= 20:
-                    X = np.array(X)
-                    y = np.array(y)
-                    
-                    # Train SVM
+                # Train LightGBM
+                try:
+                    X_lgb = self.scalers['lightgbm'].fit_transform(X)
+                    self.models['lightgbm'].fit(X_lgb, y)
+                    self.models_trained['lightgbm'] = True
+                    print("✅ LightGBM trained with technical indicators")
+                except Exception as e:
+                    print(f"⚠️ LightGBM training failed: {e}")
+                
+                # Train LSTM
+                if TENSORFLOW_AVAILABLE:
                     try:
-                        X_svm = self.scalers['svm'].fit_transform(X)
-                        self.models['svm'].fit(X_svm, y)
-                        self.models_trained['svm'] = True
-                        print("✅ SVM trained")
-                    except:
-                        print("⚠️ SVM training failed")
-                    
-                    # Train RF
-                    try:
-                        X_rf = self.scalers['boruta_rf'].fit_transform(X)
-                        self.models['boruta_rf'].fit(X_rf, y)
-                        self.models_trained['boruta_rf'] = True
-                        print("✅ Boruta+RF trained")
-                    except:
-                        print("⚠️ Boruta+RF training failed")
-                    
-                    # Train LightGBM
-                    try:
-                        X_lgb = self.scalers['lightgbm'].fit_transform(X)
-                        self.models['lightgbm'].fit(X_lgb, y)
-                        self.models_trained['lightgbm'] = True
-                        print("✅ LightGBM trained")
-                    except:
-                        print("⚠️ LightGBM training failed")
-                    
-                    # Train LSTM
-                    if TENSORFLOW_AVAILABLE:
-                        try:
-                            self.train_lstm_model(X, y)
-                        except Exception as e:
-                            print(f"⚠️ LSTM training failed: {e}")
+                        self.train_lstm_model(X, y)
+                    except Exception as e:
+                        print(f"⚠️ LSTM training failed: {e}")
             
             return any(self.models_trained.values())
             
@@ -471,59 +590,60 @@ class EnhancedBTCPredictor:
                 except:
                     pass
             
-            # ML predictions
-            if len(self.price_history) >= 10:
-                recent_prices = [p['price'] for p in self.price_history[-10:]]
-                X_current = np.array([recent_prices])
+            # ML predictions with technical indicators
+            if len(self.price_history) >= 50:
+                # Calculate current features with technical indicators
+                current_features = self.calculate_technical_indicators(self.price_history[-100:])
                 
-                # SVM
-                if self.models_trained['svm']:
-                    try:
-                        X_svm = self.scalers['svm'].transform(X_current)
-                        svm_pred = self.models['svm'].predict(X_svm)[0]
-                        predictions['svm'] = svm_pred
-                    except:
-                        pass
+                if current_features is not None and len(current_features) > 0:
+                    X_current = current_features[-1:] # Last feature vector
+                    
+                    # SVM
+                    if self.models_trained['svm']:
+                        try:
+                            X_svm = self.scalers['svm'].transform(X_current)
+                            svm_pred = self.models['svm'].predict(X_svm)[0]
+                            predictions['svm'] = svm_pred
+                        except:
+                            pass
+                    
+                    # RF
+                    if self.models_trained['boruta_rf']:
+                        try:
+                            X_rf = self.scalers['boruta_rf'].transform(X_current)
+                            rf_pred = self.models['boruta_rf'].predict(X_rf)[0]
+                            predictions['boruta_rf'] = rf_pred
+                        except:
+                            pass
+                    
+                    # LightGBM
+                    if self.models_trained['lightgbm']:
+                        try:
+                            X_lgb = self.scalers['lightgbm'].transform(X_current)
+                            lgb_pred = self.models['lightgbm'].predict(X_lgb)[0]
+                            predictions['lightgbm'] = lgb_pred
+                        except:
+                            pass
                 
-                # RF
-                if self.models_trained['boruta_rf']:
-                    try:
-                        X_rf = self.scalers['boruta_rf'].transform(X_current)
-                        rf_pred = self.models['boruta_rf'].predict(X_rf)[0]
-                        predictions['boruta_rf'] = rf_pred
-                    except:
-                        pass
-                
-                # LightGBM
-                if self.models_trained['lightgbm']:
-                    try:
-                        X_lgb = self.scalers['lightgbm'].transform(X_current)
-                        lgb_pred = self.models['lightgbm'].predict(X_lgb)[0]
-                        predictions['lightgbm'] = lgb_pred
-                    except:
-                        pass
-                
-                # LSTM
+                # LSTM with technical indicators
                 if self.models_trained['lstm'] and TENSORFLOW_AVAILABLE:
                     try:
-                        # Prepare sequence for LSTM - need 10 sequences of 10 features each
-                        if len(self.price_history) >= 20:
-                            # Get last 20 prices to create 10 sequences
-                            recent_prices = [p['price'] for p in self.price_history[-20:]]
+                        if len(self.price_history) >= 60:
+                            # Calculate features for last 60 points
+                            lstm_features = self.calculate_technical_indicators(self.price_history[-60:])
                             
-                            # Create 10 sequences of 10 prices each (sliding window)
-                            sequences = []
-                            for i in range(10, 20):
-                                sequences.append(recent_prices[i-10:i])
-                            
-                            X_lstm_seq = np.array(sequences)  # Shape: (10, 10)
-                            # Scale each sequence separately (10 features per sequence)
-                            X_lstm_scaled = self.scalers['lstm'].transform(X_lstm_seq)
-                            # Reshape to (1, 10, 10) for prediction
-                            X_lstm_reshaped = X_lstm_scaled.reshape(1, 10, 10)
-                            
-                            lstm_pred = self.models['lstm'].predict(X_lstm_reshaped, verbose=0)[0][0]
-                            predictions['lstm'] = lstm_pred
+                            if lstm_features is not None and len(lstm_features) >= 10:
+                                # Get last 10 feature vectors
+                                X_lstm_seq = lstm_features[-10:]
+                                
+                                # Scale features
+                                X_lstm_scaled = self.scalers['lstm'].transform(X_lstm_seq)
+                                
+                                # Reshape to (1, 10, num_features) for prediction
+                                X_lstm_reshaped = X_lstm_scaled.reshape(1, X_lstm_scaled.shape[0], X_lstm_scaled.shape[1])
+                                
+                                lstm_pred = self.models['lstm'].predict(X_lstm_reshaped, verbose=0)[0][0]
+                                predictions['lstm'] = lstm_pred
                     except Exception as e:
                         print(f"⚠️ LSTM prediction error: {e}")
             
@@ -649,7 +769,7 @@ class EnhancedBTCPredictor:
                 time.sleep(30)
     
     def train_lstm_model(self, X, y):
-        """Train LSTM model for sequential pattern learning"""
+        """Train LSTM model for sequential pattern learning with technical indicators"""
         try:
             if len(X) < 50:
                 return False
@@ -672,11 +792,13 @@ class EnhancedBTCPredictor:
             X_lstm = np.array(X_lstm)
             y_lstm = np.array(y_lstm)
             
-            # Build LSTM model
+            # Build LSTM model with more capacity for rich features
             model = Sequential([
-                LSTM(50, return_sequences=True, input_shape=(X_lstm.shape[1], X_lstm.shape[2])),
-                Dropout(0.2),
+                LSTM(100, return_sequences=True, input_shape=(X_lstm.shape[1], X_lstm.shape[2])),
+                Dropout(0.3),
                 LSTM(50, return_sequences=False),
+                Dropout(0.3),
+                Dense(50),
                 Dropout(0.2),
                 Dense(25),
                 Dense(1)
@@ -690,7 +812,7 @@ class EnhancedBTCPredictor:
             self.models['lstm'] = model
             self.models_trained['lstm'] = True
             
-            print("✅ LSTM model trained successfully")
+            print("✅ LSTM model trained with technical indicators")
             return True
             
         except Exception as e:

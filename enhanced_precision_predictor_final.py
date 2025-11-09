@@ -199,7 +199,7 @@ class EnhancedBTCPredictor:
                 
                 return jsonify({
                     "status": "running",
-                    "api_server": "Enhanced Predictor - Port 8080",
+                    "api_server": "Enhanced Predictor - Port 8000",
                     "models_trained": sum(self.models_trained.values()),
                     "historical_data_points": historical_count,
                     "data_range": "90 days",
@@ -1032,8 +1032,8 @@ def main():
     prediction_thread.start()
     
     # Start API server
-    print("🌐 Starting API server on port 8080...")
-    predictor.app.run(host='0.0.0.0', port=8080, debug=False)
+    print("🌐 Starting API server on port 8000...")
+    predictor.app.run(host='0.0.0.0', port=8000, debug=False)
 
 if __name__ == "__main__":
     main()

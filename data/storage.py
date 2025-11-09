@@ -119,7 +119,7 @@ class BTCDataStorage:
             df_clean = df_clean.resample(f'{Config.DATA_INTERVAL_MINUTES}min').last()
             
             # Forward fill missing values (limited to 3 periods)
-            df_clean = df_clean.fillna(method='ffill', limit=3)
+            df_clean = df_clean.ffill(limit=3)
             
             # Remove any remaining NaN rows
             df_clean = df_clean.dropna()

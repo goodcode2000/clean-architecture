@@ -17,13 +17,17 @@ class Config:
     
     # Model Configuration
     ENSEMBLE_WEIGHTS = {
-        'ets': 0.15,
-        'svr': 0.20,
+        'ets': 0.10,
+        'svr': 0.15,
         'kalman': 0.05,
-        'random_forest': 0.25,
-        'lightgbm': 0.25,
-        'lstm': 0.15
+        'random_forest': 0.20,
+        'lightgbm': 0.20,
+        'xgboost': 0.20,  # XGBoost for rapid price changes
+        'lstm': 0.10
     }
+    
+    # XGBoost minimum weight for rapid price changes
+    XGBOOST_MIN_WEIGHT = 0.2
     
     # LSTM Configuration
     LSTM_LAYERS = [64, 32, 16]

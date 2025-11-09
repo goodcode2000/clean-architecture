@@ -81,10 +81,12 @@ class EnsemblePredictor:
                 return {}
             
             # Clean data
+            logger.debug(f"Features before cleaning: {len(features_df)} rows, {len(features_df.columns)} columns")
             clean_df = self.preprocessor.clean_data_for_training(features_df)
             
             if len(clean_df) == 0:
-                logger.error("Data cleaning removed all records")
+                logger.error(f"Data cleaning removed all records. Input had {len(features_df)} rows")
+                logger.error(f"Feature columns: {list(features_df.columns)[:10]}...")
                 return {}
             
             # Prepare data for different model types

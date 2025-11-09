@@ -435,7 +435,7 @@ class DataPreprocessor:
                         pass
             
             # Remove rows with too many missing values
-            missing_threshold = 0.5  # Remove rows with >50% missing values
+            missing_threshold = 0.3  # Remove rows with >70% missing values (was 50%)
             df_clean = df_clean.dropna(thresh=int(len(df_clean.columns) * missing_threshold))
             
             # Forward fill remaining missing values (limited) - updated syntax
@@ -453,14 +453,14 @@ class DataPreprocessor:
             for col in numeric_columns:
                 df_clean = df_clean[~np.isinf(df_clean[col])]
             
-            # Remove extreme outliers (beyond 5 standard deviations)
+            # Remove extreme outliers (beyond 10 standard deviations - very lenient)
             for col in numeric_columns:
                 if col != 'timestamp' and col in df_clean.columns:
                     mean_val = df_clean[col].mean()
                     std_val = df_clean[col].std()
                     
                     if std_val > 0:  # Avoid division by zero
-                        outlier_mask = np.abs(df_clean[col] - mean_val) > (5 * std_val)
+                        outlier_mask = np.abs(df_clean[col] - mean_val) > (10 * std_val)
                         df_clean = df_clean[~outlier_mask]
             
             logger.info(f"Data cleaning: {len(df)} -> {len(df_clean)} records")

@@ -30,7 +30,7 @@ import lightgbm as lgb
 from statsmodels.tsa.arima.model import ARIMA
 
 # Technical indicators
-import talib
+import pandas_ta as ta
 
 # Deep Learning
 try:
@@ -399,85 +399,112 @@ class EnhancedBTCPredictor:
             if len(data) < 50:
                 return None
             
-            # Convert to numpy arrays
-            close = np.array([d['close'] for d in data])
-            high = np.array([d['high'] for d in data])
-            low = np.array([d['low'] for d in data])
-            open_price = np.array([d['open'] for d in data])
-            volume = np.array([d['volume'] for d in data])
+            # Convert to pandas DataFrame
+            df = pd.DataFrame(data)
+            df['close'] = df['close'].astype(float)
+            df['high'] = df['high'].astype(float)
+            df['low'] = df['low'].astype(float)
+            df['open'] = df['open'].astype(float)
+            df['volume'] = df['volume'].astype(float)
+            
+            # Calculate technical indicators using pandas_ta
+            # RSI
+            df['rsi'] = ta.rsi(df['close'], length=14)
+            
+            # MACD
+            macd = ta.macd(df['close'])
+            df['macd'] = macd['MACD_12_26_9']
+            df['macd_signal'] = macd['MACDs_12_26_9']
+            df['macd_hist'] = macd['MACDh_12_26_9']
+            
+            # Bollinger Bands
+            bbands = ta.bbands(df['close'], length=20)
+            df['bb_upper'] = bbands['BBU_20_2.0']
+            df['bb_middle'] = bbands['BBM_20_2.0']
+            df['bb_lower'] = bbands['BBL_20_2.0']
+            
+            # ATR
+            df['atr'] = ta.atr(df['high'], df['low'], df['close'], length=14)
+            
+            # Stochastic
+            stoch = ta.stoch(df['high'], df['low'], df['close'])
+            df['stoch_k'] = stoch['STOCHk_14_3_3']
+            df['stoch_d'] = stoch['STOCHd_14_3_3']
+            
+            # EMAs
+            df['ema_12'] = ta.ema(df['close'], length=12)
+            df['ema_26'] = ta.ema(df['close'], length=26)
+            
+            # SMAs
+            df['sma_5'] = ta.sma(df['close'], length=5)
+            df['sma_10'] = ta.sma(df['close'], length=10)
+            df['sma_20'] = ta.sma(df['close'], length=20)
+            
+            # Fill NaN values
+            df = df.fillna(method='bfill').fillna(method='ffill')
             
             features = []
             
-            # Calculate indicators for each point (skip first 50 for indicator warmup)
-            for i in range(50, len(data)):
+            # Build feature vectors (skip first 50 for indicator warmup)
+            for i in range(50, len(df)):
                 feature_vector = []
                 
                 # 1. Basic OHLCV features
-                feature_vector.append(close[i])
-                feature_vector.append(high[i])
-                feature_vector.append(low[i])
-                feature_vector.append(open_price[i])
-                feature_vector.append(volume[i])
+                feature_vector.append(df['close'].iloc[i])
+                feature_vector.append(df['high'].iloc[i])
+                feature_vector.append(df['low'].iloc[i])
+                feature_vector.append(df['open'].iloc[i])
+                feature_vector.append(df['volume'].iloc[i])
                 
                 # 2. Price-based features
-                feature_vector.append(close[i] - open_price[i])  # Close-Open
-                feature_vector.append(high[i] - low[i])  # High-Low range
-                feature_vector.append((close[i] - close[i-1]) / close[i-1] * 100)  # Price change %
+                feature_vector.append(df['close'].iloc[i] - df['open'].iloc[i])  # Close-Open
+                feature_vector.append(df['high'].iloc[i] - df['low'].iloc[i])  # High-Low range
+                feature_vector.append((df['close'].iloc[i] - df['close'].iloc[i-1]) / df['close'].iloc[i-1] * 100)  # Price change %
                 
                 # 3. Moving Averages
-                sma_5 = np.mean(close[i-5:i+1])
-                sma_10 = np.mean(close[i-10:i+1])
-                sma_20 = np.mean(close[i-20:i+1])
-                feature_vector.append(sma_5)
-                feature_vector.append(sma_10)
-                feature_vector.append(sma_20)
-                feature_vector.append(close[i] - sma_5)  # Distance from SMA5
-                feature_vector.append(close[i] - sma_20)  # Distance from SMA20
+                feature_vector.append(df['sma_5'].iloc[i])
+                feature_vector.append(df['sma_10'].iloc[i])
+                feature_vector.append(df['sma_20'].iloc[i])
+                feature_vector.append(df['close'].iloc[i] - df['sma_5'].iloc[i])  # Distance from SMA5
+                feature_vector.append(df['close'].iloc[i] - df['sma_20'].iloc[i])  # Distance from SMA20
                 
-                # 4. RSI (Relative Strength Index)
-                rsi = talib.RSI(close[:i+1], timeperiod=14)[-1]
-                feature_vector.append(rsi if not np.isnan(rsi) else 50)
+                # 4. RSI
+                feature_vector.append(df['rsi'].iloc[i])
                 
                 # 5. MACD
-                macd, signal, hist = talib.MACD(close[:i+1])
-                feature_vector.append(macd[-1] if not np.isnan(macd[-1]) else 0)
-                feature_vector.append(signal[-1] if not np.isnan(signal[-1]) else 0)
-                feature_vector.append(hist[-1] if not np.isnan(hist[-1]) else 0)
+                feature_vector.append(df['macd'].iloc[i])
+                feature_vector.append(df['macd_signal'].iloc[i])
+                feature_vector.append(df['macd_hist'].iloc[i])
                 
                 # 6. Bollinger Bands
-                upper, middle, lower = talib.BBANDS(close[:i+1], timeperiod=20)
-                bb_upper = upper[-1] if not np.isnan(upper[-1]) else close[i]
-                bb_lower = lower[-1] if not np.isnan(lower[-1]) else close[i]
-                feature_vector.append(bb_upper)
-                feature_vector.append(bb_lower)
-                feature_vector.append((close[i] - bb_lower) / (bb_upper - bb_lower) if bb_upper != bb_lower else 0.5)  # BB position
+                feature_vector.append(df['bb_upper'].iloc[i])
+                feature_vector.append(df['bb_lower'].iloc[i])
+                bb_range = df['bb_upper'].iloc[i] - df['bb_lower'].iloc[i]
+                bb_position = (df['close'].iloc[i] - df['bb_lower'].iloc[i]) / bb_range if bb_range > 0 else 0.5
+                feature_vector.append(bb_position)
                 
-                # 7. ATR (Average True Range) - Volatility
-                atr = talib.ATR(high[:i+1], low[:i+1], close[:i+1], timeperiod=14)[-1]
-                feature_vector.append(atr if not np.isnan(atr) else 0)
+                # 7. ATR
+                feature_vector.append(df['atr'].iloc[i])
                 
-                # 8. Stochastic Oscillator
-                slowk, slowd = talib.STOCH(high[:i+1], low[:i+1], close[:i+1])
-                feature_vector.append(slowk[-1] if not np.isnan(slowk[-1]) else 50)
-                feature_vector.append(slowd[-1] if not np.isnan(slowd[-1]) else 50)
+                # 8. Stochastic
+                feature_vector.append(df['stoch_k'].iloc[i])
+                feature_vector.append(df['stoch_d'].iloc[i])
                 
                 # 9. Volume indicators
-                volume_sma = np.mean(volume[i-20:i+1])
-                feature_vector.append(volume[i] / volume_sma if volume_sma > 0 else 1)  # Volume ratio
+                volume_sma = df['volume'].iloc[i-20:i+1].mean()
+                feature_vector.append(df['volume'].iloc[i] / volume_sma if volume_sma > 0 else 1)
                 
                 # 10. Momentum
-                momentum = close[i] - close[i-10]
+                momentum = df['close'].iloc[i] - df['close'].iloc[i-10]
                 feature_vector.append(momentum)
                 
-                # 11. Volatility (standard deviation)
-                volatility = np.std(close[i-20:i+1])
+                # 11. Volatility
+                volatility = df['close'].iloc[i-20:i+1].std()
                 feature_vector.append(volatility)
                 
-                # 12. EMA (Exponential Moving Average)
-                ema_12 = talib.EMA(close[:i+1], timeperiod=12)[-1]
-                ema_26 = talib.EMA(close[:i+1], timeperiod=26)[-1]
-                feature_vector.append(ema_12 if not np.isnan(ema_12) else close[i])
-                feature_vector.append(ema_26 if not np.isnan(ema_26) else close[i])
+                # 12. EMAs
+                feature_vector.append(df['ema_12'].iloc[i])
+                feature_vector.append(df['ema_26'].iloc[i])
                 
                 features.append(feature_vector)
             

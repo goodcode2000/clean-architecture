@@ -409,9 +409,17 @@ class FeatureEngineer:
             # First, forward fill to handle minor gaps
             features_df = features_df.ffill(limit=5)
             
-            # Then remove rows with too many NaN values (>50% of columns)
-            threshold = len(features_df.columns) * 0.5
+            # Then remove rows with too many NaN values (>70% of columns)
+            # More lenient to preserve more training data
+            threshold = len(features_df.columns) * 0.3
             features_df = features_df.dropna(thresh=int(threshold))
+            
+            # Fill any remaining NaN values with column means
+            # This ensures no NaN values remain for model training
+            for col in features_df.columns:
+                if features_df[col].dtype in ['float64', 'float32', 'int64', 'int32']:
+                    if features_df[col].isna().any():
+                        features_df[col].fillna(features_df[col].mean(), inplace=True)
             
             final_rows = len(features_df)
             

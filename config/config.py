@@ -38,7 +38,7 @@ class Config:
     ]
     
     # Enhanced Features
-    USE_ENHANCED_FEATURES = True  # Use advanced features (sentiment, microstructure, etc.)
+    USE_ENHANCED_FEATURES = False  # Use advanced features (sentiment, microstructure, etc.)
     INCLUDE_NEWS_SENTIMENT = False  # Requires NEWS_API_KEY in .env
     
     # Feature Categories

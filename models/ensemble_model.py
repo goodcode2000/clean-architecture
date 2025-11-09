@@ -13,23 +13,24 @@ import time
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config.config import Config
-from models.ets_model import ETSPredictor
-from models.svr_model import SVRPredictor
 from models.random_forest_model import RandomForestPredictor
 from models.lightgbm_model import LightGBMPredictor
 from models.lstm_model import LSTMPredictor
 from models.kalman_model import KalmanPredictor
-from services.feature_engineering import FeatureEngineer
 from services.preprocessing import DataPreprocessor
 
+# Import appropriate feature engineer based on config
+if Config.USE_ENHANCED_FEATURES:
+    from services.enhanced_feature_engineering import EnhancedFeatureEngineer as FeatureEngineer
+else:
+    from services.feature_engineering import FeatureEngineer
+
 class EnsemblePredictor:
-    """Ensemble model combining multiple ML algorithms for BTC price prediction."""
+    """Ensemble model combining LSTM, LightGBM, Random Forest, and Kalman Filter for BTC price prediction."""
     
     def __init__(self):
         # Initialize individual models
         self.models = {
-            'ets': ETSPredictor(),
-            'svr': SVRPredictor(),
             'kalman': KalmanPredictor(),
             'random_forest': RandomForestPredictor(),
             'lightgbm': LightGBMPredictor(),
@@ -66,8 +67,14 @@ class EnsemblePredictor:
         try:
             logger.info("Preparing data for ensemble models...")
             
-            # Create features
-            features_df = self.feature_engineer.create_all_features(df)
+            # Create features (enhanced or basic based on config)
+            if Config.USE_ENHANCED_FEATURES:
+                features_df = self.feature_engineer.create_all_enhanced_features(
+                    df, 
+                    include_news=Config.INCLUDE_NEWS_SENTIMENT
+                )
+            else:
+                features_df = self.feature_engineer.create_all_features(df)
             
             if len(features_df) == 0:
                 logger.error("Feature engineering failed")
@@ -81,8 +88,7 @@ class EnsemblePredictor:
                 'raw_df': df,
                 'features_df': features_df,
                 'clean_df': clean_df,
-                'ets_data': clean_df,  # ETS uses clean data directly
-                'sklearn_data': clean_df,  # SVR, RF, LightGBM use clean data
+                'sklearn_data': clean_df,  # Kalman, RF, LightGBM use clean data
                 'lstm_data': clean_df  # LSTM uses clean data with sequences
             }
             
@@ -93,12 +99,13 @@ class EnsemblePredictor:
             logger.error(f"Failed to prepare ensemble data: {e}")
             return {}
     
-    def train_individual_models(self, prepared_data: Dict[str, Any]) -> Dict[str, bool]:
+    def train_individual_models(self, prepared_data: Dict[str, Any], skip_lstm: bool = False) -> Dict[str, bool]:
         """
         Train all individual models.
         
         Args:
             prepared_data: Prepared data for models
+            skip_lstm: If True, skip LSTM training (for faster retraining)
             
         Returns:
             Dictionary with training success status for each model
@@ -106,13 +113,9 @@ class EnsemblePredictor:
         training_results = {}
         
         try:
-            # Train ETS model
-            logger.info("Training ETS model...")
-            training_results['ets'] = self.models['ets'].train(prepared_data['ets_data'])
-            
-            # Train SVR model
-            logger.info("Training SVR model...")
-            training_results['svr'] = self.models['svr'].train(prepared_data['sklearn_data'], optimize_params=False)
+            # Train Kalman Filter model
+            logger.info("Training Kalman Filter model...")
+            training_results['kalman'] = self.models['kalman'].train(prepared_data['sklearn_data'])
             
             # Train Random Forest model
             logger.info("Training Random Forest model...")
@@ -122,9 +125,14 @@ class EnsemblePredictor:
             logger.info("Training LightGBM model...")
             training_results['lightgbm'] = self.models['lightgbm'].train(prepared_data['sklearn_data'], optimize_params=False)
             
-            # Train LSTM model
-            logger.info("Training LSTM model...")
-            training_results['lstm'] = self.models['lstm'].train(prepared_data['lstm_data'])
+            # Train LSTM model (skip if requested for fast retraining)
+            if skip_lstm:
+                logger.info("Skipping LSTM training (using existing model)...")
+                # Mark as successful if LSTM was previously trained
+                training_results['lstm'] = self.models['lstm'].is_trained if hasattr(self.models['lstm'], 'is_trained') else False
+            else:
+                logger.info("Training LSTM model...")
+                training_results['lstm'] = self.models['lstm'].train(prepared_data['lstm_data'])
             
             # Log training results
             successful_models = [name for name, success in training_results.items() if success]
@@ -140,18 +148,22 @@ class EnsemblePredictor:
             logger.error(f"Failed to train individual models: {e}")
             return {name: False for name in self.models.keys()}
     
-    def train(self, df: pd.DataFrame) -> bool:
+    def train(self, df: pd.DataFrame, skip_lstm: bool = False) -> bool:
         """
         Train the ensemble model.
         
         Args:
             df: DataFrame with historical price data
+            skip_lstm: If True, skip LSTM training (for faster retraining)
             
         Returns:
             True if training successful, False otherwise
         """
         try:
-            logger.info("Training ensemble model...")
+            if skip_lstm:
+                logger.info("Training ensemble model (LSTM excluded for fast retraining)...")
+            else:
+                logger.info("Training ensemble model (full training including LSTM)...")
             
             # Prepare data
             prepared_data = self.prepare_data_for_models(df)
@@ -164,13 +176,13 @@ class EnsemblePredictor:
             self.last_training_data = prepared_data['clean_df'].copy()
             
             # Train individual models
-            training_results = self.train_individual_models(prepared_data)
+            training_results = self.train_individual_models(prepared_data, skip_lstm=skip_lstm)
             
-            # Check if at least 3 models trained successfully
+            # Check if at least 2 models trained successfully
             successful_count = sum(training_results.values())
             
-            if successful_count < 3:
-                logger.error(f"Only {successful_count} models trained successfully. Need at least 3.")
+            if successful_count < 2:
+                logger.error(f"Only {successful_count} models trained successfully. Need at least 2.")
                 return False
             
             # Adjust weights for failed models
@@ -181,7 +193,10 @@ class EnsemblePredictor:
             
             self.is_trained = True
             
-            logger.info(f"Ensemble model trained successfully with {successful_count}/5 models")
+            if skip_lstm:
+                logger.info(f"Fast retraining completed: {successful_count}/3 models (LSTM skipped)")
+            else:
+                logger.info(f"Full training completed: {successful_count}/4 models")
             logger.info(f"Adjusted weights: {self.weights}")
             
             return True
@@ -245,10 +260,7 @@ class EnsemblePredictor:
             for model_name, model in self.models.items():
                 if self.weights[model_name] > 0:  # Only predict with trained models
                     try:
-                        if model_name == 'ets':
-                            pred, conf = model.predict()
-                        else:
-                            pred, conf = model.predict(prepared_data['sklearn_data'])
+                        pred, conf = model.predict(prepared_data['sklearn_data'])
                         
                         predictions[model_name] = pred
                         confidence_intervals[model_name] = conf
@@ -385,10 +397,7 @@ class EnsemblePredictor:
             for model_name, model in self.models.items():
                 if self.weights[model_name] > 0:  # Only update trained models
                     try:
-                        if model_name == 'ets':
-                            update_results[model_name] = model.update_model(prepared_data['ets_data'])
-                        else:
-                            update_results[model_name] = model.update_model(prepared_data['sklearn_data'])
+                        update_results[model_name] = model.update_model(prepared_data['sklearn_data'])
                     except Exception as e:
                         logger.warning(f"Update failed for {model_name}: {e}")
                         update_results[model_name] = False

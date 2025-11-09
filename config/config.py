@@ -16,12 +16,10 @@ class Config:
     
     # Model Configuration
     ENSEMBLE_WEIGHTS = {
-        'ets': 0.15,
-        'svr': 0.20,
-        'kalman': 0.05,
-        'random_forest': 0.25,
-        'lightgbm': 0.25,
-        'lstm': 0.15
+        'kalman': 0.10,
+        'random_forest': 0.30,
+        'lightgbm': 0.35,
+        'lstm': 0.25
     }
     
     # LSTM Configuration
@@ -39,8 +37,22 @@ class Config:
         'volatility'
     ]
     
+    # Enhanced Features
+    USE_ENHANCED_FEATURES = True  # Use advanced features (sentiment, microstructure, etc.)
+    INCLUDE_NEWS_SENTIMENT = False  # Requires NEWS_API_KEY in .env
+    
+    # Feature Categories
+    FEATURE_CATEGORIES = {
+        'market_sentiment': True,      # Fear & Greed, sentiment indicators
+        'volume_profile': True,         # VWAP, OBV, MFI, order flow
+        'trend_strength': True,         # ADX, Parabolic SAR, Ichimoku
+        'microstructure': True,         # Spread, liquidity, price impact
+        'statistical': True,            # Skewness, kurtosis, Hurst exponent
+        'news_sentiment': False         # News-based sentiment (requires API key)
+    }
+    
     # Training Configuration
-    RETRAIN_INTERVAL_HOURS = 6
+    RETRAIN_INTERVAL_HOURS = 1
     VALIDATION_SPLIT = 0.2
     CROSS_VALIDATION_FOLDS = 5
     

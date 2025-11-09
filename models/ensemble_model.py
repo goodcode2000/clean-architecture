@@ -76,11 +76,12 @@ class EnsemblePredictor:
             else:
                 features_df = self.feature_engineer.create_all_features(df)
             
-            if len(features_df) == 0:
-                logger.error("Feature engineering returned empty DataFrame")
-                return {}
+            logger.info(f"Feature engineering result: {len(features_df)} rows, {len(features_df.columns) if len(features_df) > 0 else 0} columns")
             
-            logger.info(f"Features created: {len(features_df)} rows, {len(features_df.columns)} columns")
+            if len(features_df) == 0:
+                logger.error("Feature engineering returned empty DataFrame - all rows removed by dropna()")
+                logger.error(f"Input data had {len(df)} rows")
+                return {}
             
             # Clean data
             try:

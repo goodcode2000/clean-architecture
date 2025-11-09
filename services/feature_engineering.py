@@ -404,13 +404,20 @@ class FeatureEngineer:
             
             # Remove rows with NaN values (from rolling calculations)
             initial_rows = len(features_df)
-            features_df = features_df.dropna()
+            
+            # For small datasets, use forward fill instead of dropping all NaN rows
+            if initial_rows < 200:
+                features_df = features_df.ffill().bfill()
+                features_df = features_df.dropna()  # Only drop if still has NaN after filling
+            else:
+                features_df = features_df.dropna()
+            
             final_rows = len(features_df)
             
             if initial_rows != final_rows:
                 logger.info(f"Removed {initial_rows - final_rows} rows with NaN values")
             
-            logger.info(f"Feature engineering completed: {len(features_df.columns)} features created")
+            logger.info(f"Feature engineering completed: {len(features_df.columns)} features created, {final_rows} rows remaining")
             return features_df
             
         except Exception as e:

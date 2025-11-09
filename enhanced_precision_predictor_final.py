@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Enhanced High-Precision BTC Predictor - Final Version
-New Architecture: ARIMA + SVM + Boruta+RF + XGBoost
+New Architecture: ARIMA + SVM + Boruta+RF + LightGBM
 90-day historical data management with 5-minute updates
 Target: $20-60 USD accuracy with rapid change detection
 """
@@ -26,7 +26,7 @@ from sklearn.preprocessing import StandardScaler, RobustScaler
 from sklearn.metrics import mean_absolute_error
 
 # Advanced models
-import xgboost as xgb
+import lightgbm as lgb
 from statsmodels.tsa.arima.model import ARIMA
 
 # Deep Learning
@@ -55,14 +55,14 @@ class EnhancedBTCPredictor:
             'arima': None,
             'svm': SVR(kernel='rbf', C=100, gamma='scale', epsilon=0.1),
             'boruta_rf': RandomForestRegressor(n_estimators=200, max_depth=10, random_state=42),
-            'xgboost': xgb.XGBRegressor(
+            'lightgbm': lgb.LGBMRegressor(
                 n_estimators=300,
                 max_depth=8,
                 learning_rate=0.1,
                 subsample=0.8,
                 colsample_bytree=0.8,
                 random_state=42,
-                objective='reg:squarederror'
+                verbose=-1
             ),
             'lstm': None  # Will be built dynamically
         }
@@ -73,7 +73,7 @@ class EnhancedBTCPredictor:
                 'arima': 0.2,
                 'svm': 0.2,
                 'boruta_rf': 0.2,
-                'xgboost': 0.2,
+                'lightgbm': 0.2,
                 'lstm': 0.2
             }
         else:
@@ -81,7 +81,7 @@ class EnhancedBTCPredictor:
                 'arima': 0.25,
                 'svm': 0.25,
                 'boruta_rf': 0.25,
-                'xgboost': 0.25,
+                'lightgbm': 0.25,
                 'lstm': 0.0
             }
         
@@ -90,7 +90,7 @@ class EnhancedBTCPredictor:
             'arima': [],
             'svm': [],
             'boruta_rf': [],
-            'xgboost': [],
+            'lightgbm': [],
             'lstm': []
         }
         
@@ -98,7 +98,7 @@ class EnhancedBTCPredictor:
         self.scalers = {
             'svm': StandardScaler(),
             'boruta_rf': RobustScaler(),
-            'xgboost': StandardScaler(),
+            'lightgbm': StandardScaler(),
             'lstm': StandardScaler()
         }
         
@@ -107,7 +107,7 @@ class EnhancedBTCPredictor:
             'arima': False,
             'svm': False,
             'boruta_rf': False,
-            'xgboost': False,
+            'lightgbm': False,
             'lstm': False
         }
         
@@ -135,7 +135,7 @@ class EnhancedBTCPredictor:
                 "status": "healthy",
                 "timestamp": datetime.now().isoformat(),
                 "version": "3.0.0-enhanced",
-                "models": "ARIMA+SVM+Boruta+RF+XGBoost+LSTM",
+                "models": "ARIMA+SVM+Boruta+RF+LightGBM+LSTM",
                 "target_accuracy": "$20-60 USD"
             })
         
@@ -429,14 +429,14 @@ class EnhancedBTCPredictor:
                     except:
                         print("⚠️ Boruta+RF training failed")
                     
-                    # Train XGBoost
+                    # Train LightGBM
                     try:
-                        X_xgb = self.scalers['xgboost'].fit_transform(X)
-                        self.models['xgboost'].fit(X_xgb, y)
-                        self.models_trained['xgboost'] = True
-                        print("✅ XGBoost trained")
+                        X_lgb = self.scalers['lightgbm'].fit_transform(X)
+                        self.models['lightgbm'].fit(X_lgb, y)
+                        self.models_trained['lightgbm'] = True
+                        print("✅ LightGBM trained")
                     except:
-                        print("⚠️ XGBoost training failed")
+                        print("⚠️ LightGBM training failed")
                     
                     # Train LSTM
                     if TENSORFLOW_AVAILABLE:
@@ -494,12 +494,12 @@ class EnhancedBTCPredictor:
                     except:
                         pass
                 
-                # XGBoost
-                if self.models_trained['xgboost']:
+                # LightGBM
+                if self.models_trained['lightgbm']:
                     try:
-                        X_xgb = self.scalers['xgboost'].transform(X_current)
-                        xgb_pred = self.models['xgboost'].predict(X_xgb)[0]
-                        predictions['xgboost'] = xgb_pred
+                        X_lgb = self.scalers['lightgbm'].transform(X_current)
+                        lgb_pred = self.models['lightgbm'].predict(X_lgb)[0]
+                        predictions['lightgbm'] = lgb_pred
                     except:
                         pass
                 
@@ -547,7 +547,7 @@ class EnhancedBTCPredictor:
                         'prediction_for_time': (prediction_timestamp + timedelta(minutes=5)).isoformat(),
                         'individual_predictions': predictions,
                         'model_weights': self.model_weights.copy(),
-                        'model': 'Enhanced Ensemble with LSTM (5min ahead)',
+                        'model': 'Enhanced Ensemble with LightGBM+LSTM (5min ahead)',
                         'confidence_lower': final_prediction * 0.98,
                         'confidence_upper': final_prediction * 1.02
                     }
@@ -572,7 +572,7 @@ class EnhancedBTCPredictor:
     def run_prediction_loop(self):
         """Main prediction loop with 1-minute intervals, predicting 5 minutes ahead"""
         print("🚀 Starting Enhanced BTC Predictor...")
-        print("📊 Models: ARIMA + SVM + Boruta+RF + XGBoost + LSTM")
+        print("📊 Models: ARIMA + SVM + Boruta+RF + LightGBM + LSTM")
         print("🎯 Target: $20-60 USD accuracy with rapid change detection")
         print("📈 90-day historical data management enabled")
         print("🔮 Prediction: 5 minutes ahead")
@@ -714,16 +714,94 @@ class EnhancedBTCPredictor:
         except Exception as e:
             print(f"⚠️ Performance update error: {e}")
     
-    def adjust_model_weights(self):
-        """Dynamically adjust model weights based on recent performance"""
+    def detect_market_condition(self):
+        """Detect current market condition: stable, volatile, trending up, or trending down"""
         try:
+            if len(self.price_history) < 20:
+                return 'stable', 0.0
+            
+            # Get recent prices
+            recent_prices = [p['price'] for p in self.price_history[-20:]]
+            
+            # Calculate volatility (standard deviation)
+            volatility = np.std(recent_prices)
+            avg_price = np.mean(recent_prices)
+            volatility_pct = (volatility / avg_price) * 100
+            
+            # Calculate trend (linear regression slope)
+            x = np.arange(len(recent_prices))
+            slope = np.polyfit(x, recent_prices, 1)[0]
+            trend_pct = (slope / avg_price) * 100
+            
+            # Determine market condition
+            if volatility_pct > 0.5:  # High volatility
+                if abs(trend_pct) > 0.3:
+                    condition = 'volatile_trending'
+                else:
+                    condition = 'volatile'
+            elif abs(trend_pct) > 0.2:  # Clear trend
+                if trend_pct > 0:
+                    condition = 'trending_up'
+                else:
+                    condition = 'trending_down'
+            else:
+                condition = 'stable'
+            
+            return condition, volatility_pct
+            
+        except Exception as e:
+            print(f"⚠️ Market condition detection error: {e}")
+            return 'stable', 0.0
+    
+    def adjust_model_weights(self):
+        """Dynamically adjust model weights based on recent performance AND market conditions"""
+        try:
+            # Detect current market condition
+            market_condition, volatility = self.detect_market_condition()
+            
             model_scores = {}
             
             for model_name, errors in self.model_performance.items():
                 if len(errors) >= 5:  # Need at least 5 predictions
-                    avg_error = np.mean(errors[-20:])  # Last 20 predictions
-                    # Convert error to score (lower error = higher score)
-                    model_scores[model_name] = 1 / (1 + avg_error)
+                    # Use recent errors with exponential weighting (more recent = more important)
+                    recent_errors = errors[-20:]
+                    weights = np.exp(np.linspace(-1, 0, len(recent_errors)))
+                    weighted_error = np.average(recent_errors, weights=weights)
+                    
+                    # Base score (lower error = higher score)
+                    base_score = 1 / (1 + weighted_error)
+                    
+                    # Apply market condition multipliers
+                    multiplier = 1.0
+                    
+                    if market_condition == 'volatile' or market_condition == 'volatile_trending':
+                        # Favor LightGBM and LSTM for volatile markets
+                        if model_name == 'lightgbm':
+                            multiplier = 1.3
+                        elif model_name == 'lstm':
+                            multiplier = 1.2
+                        elif model_name == 'arima':
+                            multiplier = 0.7  # ARIMA struggles with volatility
+                    
+                    elif market_condition == 'trending_up' or market_condition == 'trending_down':
+                        # Favor ARIMA and LSTM for trending markets
+                        if model_name == 'arima':
+                            multiplier = 1.3
+                        elif model_name == 'lstm':
+                            multiplier = 1.2
+                        elif model_name == 'svm':
+                            multiplier = 1.1
+                    
+                    elif market_condition == 'stable':
+                        # Favor SVM and RF for stable markets
+                        if model_name == 'svm':
+                            multiplier = 1.2
+                        elif model_name == 'boruta_rf':
+                            multiplier = 1.2
+                        elif model_name == 'lightgbm':
+                            multiplier = 0.9
+                    
+                    model_scores[model_name] = base_score * multiplier
                 else:
                     # Default score for models without enough data
                     model_scores[model_name] = 0.5
@@ -736,7 +814,13 @@ class EnhancedBTCPredictor:
                     if model_name in model_scores:
                         new_weight = model_scores[model_name] / total_score
                         # Smooth weight adjustment (don't change too drastically)
-                        new_weights[model_name] = 0.7 * self.model_weights[model_name] + 0.3 * new_weight
+                        # Use adaptive smoothing: faster adjustment in volatile markets
+                        if market_condition == 'volatile' or market_condition == 'volatile_trending':
+                            smooth_factor = 0.5  # Faster adaptation
+                        else:
+                            smooth_factor = 0.7  # Slower adaptation
+                        
+                        new_weights[model_name] = smooth_factor * self.model_weights[model_name] + (1 - smooth_factor) * new_weight
                     else:
                         new_weights[model_name] = self.model_weights[model_name]
                 
@@ -746,7 +830,8 @@ class EnhancedBTCPredictor:
                     for model_name in new_weights:
                         self.model_weights[model_name] = new_weights[model_name] / total_weight
                 
-                print(f"🎯 Dynamic weights: ARIMA:{self.model_weights['arima']:.2f} SVM:{self.model_weights['svm']:.2f} RF:{self.model_weights['boruta_rf']:.2f} XGB:{self.model_weights['xgboost']:.2f} LSTM:{self.model_weights['lstm']:.2f}")
+                print(f"📊 Market: {market_condition} (vol: {volatility:.2f}%)")
+                print(f"🎯 Dynamic weights: ARIMA:{self.model_weights['arima']:.2f} SVM:{self.model_weights['svm']:.2f} RF:{self.model_weights['boruta_rf']:.2f} LGB:{self.model_weights['lightgbm']:.2f} LSTM:{self.model_weights['lstm']:.2f}")
             
         except Exception as e:
             print(f"⚠️ Weight adjustment error: {e}")

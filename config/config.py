@@ -23,10 +23,10 @@ class Config:
     }
     
     # LSTM Configuration
-    LSTM_LAYERS = [64, 32, 16]
-    LSTM_SEQUENCE_LENGTH = 60  # 5 hours of 5-minute data
-    LSTM_BATCH_SIZE = 32
-    LSTM_EPOCHS = 100
+    LSTM_LAYERS = [32, 16]  # Reduced from [64, 32, 16] for faster training
+    LSTM_SEQUENCE_LENGTH = 30  # Reduced from 60 for faster training (2.5 hours of data)
+    LSTM_BATCH_SIZE = 64  # Increased from 32 for faster training
+    LSTM_EPOCHS = 10  # Reduced from 100 for faster training (~5-10 seconds)
     
     # Feature Engineering
     TECHNICAL_INDICATORS = [

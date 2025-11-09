@@ -107,13 +107,10 @@ class PredictionPipeline:
                     logger.debug("Skipping training - too soon since last training")
                     return True
             
-            # Determine if we should skip LSTM for fast retraining
-            skip_lstm = not initial_training  # Skip LSTM for periodic retrains, include for initial
+            # Always include LSTM in retraining (optimized for 45 seconds total)
+            skip_lstm = False  # Always train LSTM (now optimized for speed)
             
-            if skip_lstm:
-                logger.info("Starting fast model retraining (LSTM excluded)...")
-            else:
-                logger.info("Starting full model training (including LSTM)...")
+            logger.info("Starting model retraining (all 4 models including LSTM)...")
             
             # Get training data
             training_data = self.data_manager.get_data_for_training()
@@ -155,10 +152,11 @@ class PredictionPipeline:
                 if len(self.training_history) > 50:
                     self.training_history = self.training_history[-50:]
                 
-                if skip_lstm:
-                    logger.info(f"Fast retraining completed in {training_duration.total_seconds():.1f}s (LSTM skipped)")
-                else:
-                    logger.info(f"Full training completed in {training_duration.total_seconds():.1f}s (LSTM included)")
+                logger.info(f"Retraining completed in {training_duration.total_seconds():.1f}s (all 4 models)")
+                
+                if training_duration.total_seconds() > 45:
+                    logger.warning(f"Training took {training_duration.total_seconds():.1f}s (target: 45s)")
+                
                 return True
             else:
                 self.pipeline_metrics['total_retrains'] += 1
@@ -454,14 +452,14 @@ class PredictionPipeline:
             True if retraining is needed, False otherwise
         """
         try:
-            # Time-based retraining (fast retrain without LSTM)
+            # Time-based retraining (all models including LSTM)
             if self.last_training_time:
                 time_since_training = datetime.now() - self.last_training_time
                 if time_since_training >= timedelta(hours=self.retrain_interval_hours):
-                    logger.info("Fast retraining due to time interval (LSTM excluded)")
+                    logger.info("Retraining due to time interval (all 4 models)")
                     return True
             
-            # Performance-based retraining (fast retrain without LSTM)
+            # Performance-based retraining (all models including LSTM)
             if len(self.prediction_history) >= 20:
                 recent_predictions = [p for p in self.prediction_history[-20:] if 'error_percentage' in p]
                 
@@ -469,29 +467,13 @@ class PredictionPipeline:
                     avg_error = np.mean([abs(p['error_percentage']) for p in recent_predictions])
                     
                     if avg_error > 10.0:  # If average error > 10%
-                        logger.info(f"Fast retraining due to high error rate: {avg_error:.2f}%")
+                        logger.info(f"Retraining due to high error rate: {avg_error:.2f}%")
                         return True
             
             return False
             
         except Exception as e:
             logger.error(f"Failed to check retraining criteria: {e}")
-            return False
-    
-    def retrain_lstm_full(self) -> bool:
-        """
-        Perform full retraining including LSTM model.
-        This is slower but more comprehensive.
-        Call this manually when needed (e.g., daily or weekly).
-        
-        Returns:
-            True if retraining successful, False otherwise
-        """
-        try:
-            logger.info("Starting full LSTM retraining (manual trigger)...")
-            return self.train_models(force_retrain=True, initial_training=True)
-        except Exception as e:
-            logger.error(f"Full LSTM retraining failed: {e}")
             return False
     
     def start_pipeline(self):

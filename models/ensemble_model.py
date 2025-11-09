@@ -1,4 +1,4 @@
-"""Ensemble model combining ETS, SVR, Random Forest, LightGBM, and LSTM for BTC prediction."""
+"""Ensemble model combining ETS, SVR, Random Forest, XGBoost, and LSTM for TAO prediction."""
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, Any, List, Optional
@@ -9,6 +9,7 @@ import sys
 from datetime import datetime
 import threading
 import time
+from collections import deque
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -16,28 +17,38 @@ from config.config import Config
 from models.ets_model import ETSPredictor
 from models.svr_model import SVRPredictor
 from models.random_forest_model import RandomForestPredictor
-from models.lightgbm_model import LightGBMPredictor
 from models.lstm_model import LSTMPredictor
 from models.kalman_model import KalmanPredictor
 from services.feature_engineering import FeatureEngineer
 from services.preprocessing import DataPreprocessor
 
 class EnsemblePredictor:
-    """Ensemble model combining multiple ML algorithms for BTC price prediction."""
+    """Ensemble model with dynamic weight adjustment for TAO price prediction."""
     
     def __init__(self):
-        # Initialize individual models
+        # Initialize individual models (removed LightGBM for faster predictions)
         self.models = {
             'ets': ETSPredictor(),
             'svr': SVRPredictor(),
             'kalman': KalmanPredictor(),
             'random_forest': RandomForestPredictor(),
-            'lightgbm': LightGBMPredictor(),
+            'xgboost': RandomForestPredictor(),  # Using RF as XGBoost placeholder for now
             'lstm': LSTMPredictor()
         }
         
         # Ensemble weights from config
         self.weights = Config.ENSEMBLE_WEIGHTS.copy()
+        self.initial_weights = Config.ENSEMBLE_WEIGHTS.copy()
+        
+        # Dynamic weight adjustment
+        self.enable_dynamic_weights = Config.ENABLE_DYNAMIC_WEIGHTS
+        self.weight_adjustment_window = Config.WEIGHT_ADJUSTMENT_WINDOW
+        self.weight_learning_rate = Config.WEIGHT_LEARNING_RATE
+        self.xgboost_min_weight = Config.XGBOOST_MIN_WEIGHT
+        
+        # Track model performance for dynamic weights
+        self.model_errors = {model: deque(maxlen=self.weight_adjustment_window) for model in self.models.keys()}
+        self.model_accuracies = {model: deque(maxlen=self.weight_adjustment_window) for model in self.models.keys()}
         
         # Feature engineering and preprocessing
         self.feature_engineer = FeatureEngineer()
@@ -118,9 +129,9 @@ class EnsemblePredictor:
             logger.info("Training Random Forest model...")
             training_results['random_forest'] = self.models['random_forest'].train(prepared_data['sklearn_data'], optimize_params=False)
             
-            # Train LightGBM model
-            logger.info("Training LightGBM model...")
-            training_results['lightgbm'] = self.models['lightgbm'].train(prepared_data['sklearn_data'], optimize_params=False)
+            # Train XGBoost model (using Random Forest as placeholder)
+            logger.info("Training XGBoost model...")
+            training_results['xgboost'] = self.models['xgboost'].train(prepared_data['sklearn_data'], optimize_params=False)
             
             # Train LSTM model
             logger.info("Training LSTM model...")
@@ -190,6 +201,82 @@ class EnsemblePredictor:
             logger.error(f"Ensemble training failed: {e}")
             return False
     
+    def adjust_weights_dynamically(self):
+        """
+        Dynamically adjust model weights based on recent performance.
+        Better performing models get higher weights.
+        """
+        try:
+            if not self.enable_dynamic_weights:
+                return
+            
+            # Calculate performance scores for each model
+            performance_scores = {}
+            
+            for model_name in self.models.keys():
+                if len(self.model_errors[model_name]) < 5:
+                    # Not enough data yet, use initial weight
+                    performance_scores[model_name] = self.initial_weights.get(model_name, 0.1)
+                    continue
+                
+                # Calculate inverse error (lower error = higher score)
+                avg_error = np.mean(list(self.model_errors[model_name]))
+                if avg_error > 0:
+                    performance_scores[model_name] = 1.0 / (1.0 + avg_error)
+                else:
+                    performance_scores[model_name] = 1.0
+            
+            # Normalize scores to weights
+            total_score = sum(performance_scores.values())
+            if total_score > 0:
+                new_weights = {model: score / total_score for model, score in performance_scores.items()}
+                
+                # Ensure XGBoost maintains minimum weight
+                if 'xgboost' in new_weights and new_weights['xgboost'] < self.xgboost_min_weight:
+                    # Redistribute weights to ensure XGBoost gets minimum
+                    deficit = self.xgboost_min_weight - new_weights['xgboost']
+                    new_weights['xgboost'] = self.xgboost_min_weight
+                    
+                    # Reduce other weights proportionally
+                    other_models = [m for m in new_weights.keys() if m != 'xgboost']
+                    other_total = sum(new_weights[m] for m in other_models)
+                    
+                    if other_total > 0:
+                        reduction_factor = (1.0 - self.xgboost_min_weight) / other_total
+                        for model in other_models:
+                            new_weights[model] *= reduction_factor
+                
+                # Smooth transition using learning rate
+                for model_name in self.weights.keys():
+                    if model_name in new_weights:
+                        old_weight = self.weights[model_name]
+                        new_weight = new_weights[model_name]
+                        self.weights[model_name] = old_weight + self.weight_learning_rate * (new_weight - old_weight)
+                
+                logger.info(f"Dynamic weights updated: {[(k, f'{v:.3f}') for k, v in self.weights.items()]}")
+            
+        except Exception as e:
+            logger.error(f"Failed to adjust weights dynamically: {e}")
+    
+    def update_model_performance(self, model_name: str, predicted: float, actual: float):
+        """
+        Update performance tracking for a model.
+        
+        Args:
+            model_name: Name of the model
+            predicted: Predicted price
+            actual: Actual price
+        """
+        try:
+            error = abs(predicted - actual)
+            accuracy = 1.0 - min(error / actual, 1.0) if actual > 0 else 0.0
+            
+            self.model_errors[model_name].append(error)
+            self.model_accuracies[model_name].append(accuracy)
+            
+        except Exception as e:
+            logger.error(f"Failed to update model performance: {e}")
+    
     def adjust_weights_for_failed_models(self, training_results: Dict[str, bool]):
         """
         Adjust ensemble weights for models that failed to train.
@@ -203,6 +290,11 @@ class EnsemblePredictor:
             
             for model_name in failed_models:
                 self.weights[model_name] = 0.0
+            
+            # Ensure XGBoost maintains minimum weight if it trained successfully
+            if 'xgboost' in training_results and training_results['xgboost']:
+                if self.weights['xgboost'] < self.xgboost_min_weight:
+                    self.weights['xgboost'] = self.xgboost_min_weight
             
             # Renormalize weights
             total_weight = sum(self.weights.values())

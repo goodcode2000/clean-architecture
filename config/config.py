@@ -15,19 +15,21 @@ class Config:
     HISTORICAL_DAYS = 90
     PREDICTION_HORIZON_MINUTES = 5
     
-    # Model Configuration
+    # Model Configuration - Initial weights (will be adjusted dynamically)
     ENSEMBLE_WEIGHTS = {
-        'ets': 0.10,
-        'svr': 0.15,
+        'ets': 0.15,
+        'svr': 0.20,
         'kalman': 0.05,
-        'random_forest': 0.20,
-        'lightgbm': 0.20,
+        'random_forest': 0.30,
         'xgboost': 0.20,  # XGBoost for rapid price changes
         'lstm': 0.10
     }
     
-    # XGBoost minimum weight for rapid price changes
-    XGBOOST_MIN_WEIGHT = 0.2
+    # Dynamic weight adjustment settings
+    ENABLE_DYNAMIC_WEIGHTS = True
+    XGBOOST_MIN_WEIGHT = 0.2  # XGBoost minimum weight for rapid price changes
+    WEIGHT_ADJUSTMENT_WINDOW = 20  # Number of recent predictions to consider
+    WEIGHT_LEARNING_RATE = 0.1  # How quickly weights adapt to performance
     
     # LSTM Configuration
     LSTM_LAYERS = [64, 32, 16]

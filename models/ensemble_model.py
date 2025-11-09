@@ -1,4 +1,4 @@
-"""Ensemble model combining ETS, SVR, Random Forest, XGBoost, and LSTM for TAO prediction."""
+"""Ensemble model combining ETS, SVR, Random Forest, LightGBM, and LSTM for TAO prediction."""
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, Any, List, Optional
@@ -17,6 +17,7 @@ from config.config import Config
 from models.ets_model import ETSPredictor
 from models.svr_model import SVRPredictor
 from models.random_forest_model import RandomForestPredictor
+from models.lightgbm_model import LightGBMPredictor
 from models.lstm_model import LSTMPredictor
 from models.kalman_model import KalmanPredictor
 from services.feature_engineering import FeatureEngineer
@@ -26,13 +27,13 @@ class EnsemblePredictor:
     """Ensemble model with dynamic weight adjustment for TAO price prediction."""
     
     def __init__(self):
-        # Initialize individual models (removed LightGBM for faster predictions)
+        # Initialize individual models
         self.models = {
             'ets': ETSPredictor(),
             'svr': SVRPredictor(),
             'kalman': KalmanPredictor(),
             'random_forest': RandomForestPredictor(),
-            'xgboost': RandomForestPredictor(),  # Using RF as XGBoost placeholder for now
+            'lightgbm': LightGBMPredictor(),
             'lstm': LSTMPredictor()
         }
         
@@ -44,7 +45,7 @@ class EnsemblePredictor:
         self.enable_dynamic_weights = Config.ENABLE_DYNAMIC_WEIGHTS
         self.weight_adjustment_window = Config.WEIGHT_ADJUSTMENT_WINDOW
         self.weight_learning_rate = Config.WEIGHT_LEARNING_RATE
-        self.xgboost_min_weight = Config.XGBOOST_MIN_WEIGHT
+        self.lightgbm_min_weight = Config.LIGHTGBM_MIN_WEIGHT
         
         # Track model performance for dynamic weights
         self.model_errors = {model: deque(maxlen=self.weight_adjustment_window) for model in self.models.keys()}
@@ -182,17 +183,17 @@ class EnsemblePredictor:
                 logger.error(f"❌ Random Forest model training error: {e}")
                 training_results['random_forest'] = False
             
-            # Train XGBoost model (using Random Forest as placeholder)
+            # Train LightGBM model
             try:
-                logger.info("Training XGBoost model...")
-                training_results['xgboost'] = self.models['xgboost'].train(prepared_data['sklearn_data'], optimize_params=False)
-                if training_results['xgboost']:
-                    logger.info("✅ XGBoost model trained successfully")
+                logger.info("Training LightGBM model...")
+                training_results['lightgbm'] = self.models['lightgbm'].train(prepared_data['sklearn_data'], optimize_params=False)
+                if training_results['lightgbm']:
+                    logger.info("✅ LightGBM model trained successfully")
                 else:
-                    logger.warning("❌ XGBoost model training failed")
+                    logger.warning("❌ LightGBM model training failed")
             except Exception as e:
-                logger.error(f"❌ XGBoost model training error: {e}")
-                training_results['xgboost'] = False
+                logger.error(f"❌ LightGBM model training error: {e}")
+                training_results['lightgbm'] = False
             
             # Train LSTM model
             try:
@@ -203,6 +204,8 @@ class EnsemblePredictor:
                 else:
                     logger.warning("❌ LSTM model training failed")
             except Exception as e:
+                logger.error(f"❌ LSTM model training error: {e}")
+                training_results['lstm'] = False
             
             # Log training results
             successful_models = [name for name, success in training_results.items() if success]
@@ -298,18 +301,18 @@ class EnsemblePredictor:
             if total_score > 0:
                 new_weights = {model: score / total_score for model, score in performance_scores.items()}
                 
-                # Ensure XGBoost maintains minimum weight
-                if 'xgboost' in new_weights and new_weights['xgboost'] < self.xgboost_min_weight:
-                    # Redistribute weights to ensure XGBoost gets minimum
-                    deficit = self.xgboost_min_weight - new_weights['xgboost']
-                    new_weights['xgboost'] = self.xgboost_min_weight
+                # Ensure LightGBM maintains minimum weight
+                if 'lightgbm' in new_weights and new_weights['lightgbm'] < self.lightgbm_min_weight:
+                    # Redistribute weights to ensure LightGBM gets minimum
+                    deficit = self.lightgbm_min_weight - new_weights['lightgbm']
+                    new_weights['lightgbm'] = self.lightgbm_min_weight
                     
                     # Reduce other weights proportionally
-                    other_models = [m for m in new_weights.keys() if m != 'xgboost']
+                    other_models = [m for m in new_weights.keys() if m != 'lightgbm']
                     other_total = sum(new_weights[m] for m in other_models)
                     
                     if other_total > 0:
-                        reduction_factor = (1.0 - self.xgboost_min_weight) / other_total
+                        reduction_factor = (1.0 - self.lightgbm_min_weight) / other_total
                         for model in other_models:
                             new_weights[model] *= reduction_factor
                 
@@ -358,10 +361,10 @@ class EnsemblePredictor:
             for model_name in failed_models:
                 self.weights[model_name] = 0.0
             
-            # Ensure XGBoost maintains minimum weight if it trained successfully
-            if 'xgboost' in training_results and training_results['xgboost']:
-                if self.weights['xgboost'] < self.xgboost_min_weight:
-                    self.weights['xgboost'] = self.xgboost_min_weight
+            # Ensure LightGBM maintains minimum weight if it trained successfully
+            if 'lightgbm' in training_results and training_results['lightgbm']:
+                if self.weights['lightgbm'] < self.lightgbm_min_weight:
+                    self.weights['lightgbm'] = self.lightgbm_min_weight
             
             # Renormalize weights
             total_weight = sum(self.weights.values())

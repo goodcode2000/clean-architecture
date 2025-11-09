@@ -21,13 +21,13 @@ class Config:
         'svr': 0.20,
         'kalman': 0.05,
         'random_forest': 0.30,
-        'xgboost': 0.20,  # XGBoost for rapid price changes
+        'lightgbm': 0.20,  # LightGBM for rapid price changes
         'lstm': 0.10
     }
     
     # Dynamic weight adjustment settings
     ENABLE_DYNAMIC_WEIGHTS = True
-    XGBOOST_MIN_WEIGHT = 0.2  # XGBoost minimum weight for rapid price changes
+    LIGHTGBM_MIN_WEIGHT = 0.2  # LightGBM minimum weight for rapid price changes
     WEIGHT_ADJUSTMENT_WINDOW = 20  # Number of recent predictions to consider
     WEIGHT_LEARNING_RATE = 0.1  # How quickly weights adapt to performance
     

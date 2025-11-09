@@ -420,17 +420,33 @@ class DataPreprocessor:
             Cleaned DataFrame
         """
         try:
+            if df is None or len(df) == 0:
+                logger.error("Empty DataFrame provided for cleaning")
+                return pd.DataFrame()
+            
             df_clean = df.copy()
+            
+            # Convert object columns to numeric if possible
+            for col in df_clean.columns:
+                if df_clean[col].dtype == 'object':
+                    try:
+                        df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce')
+                    except:
+                        pass
             
             # Remove rows with too many missing values
             missing_threshold = 0.5  # Remove rows with >50% missing values
             df_clean = df_clean.dropna(thresh=int(len(df_clean.columns) * missing_threshold))
             
-            # Forward fill remaining missing values (limited)
-            df_clean = df_clean.fillna(method='ffill', limit=3)
+            # Forward fill remaining missing values (limited) - updated syntax
+            df_clean = df_clean.ffill(limit=3)
             
             # Remove any remaining rows with missing values
             df_clean = df_clean.dropna()
+            
+            if len(df_clean) == 0:
+                logger.error("All data removed during cleaning")
+                return pd.DataFrame()
             
             # Remove infinite values
             numeric_columns = df_clean.select_dtypes(include=[np.number]).columns
@@ -439,7 +455,7 @@ class DataPreprocessor:
             
             # Remove extreme outliers (beyond 5 standard deviations)
             for col in numeric_columns:
-                if col != 'timestamp':
+                if col != 'timestamp' and col in df_clean.columns:
                     mean_val = df_clean[col].mean()
                     std_val = df_clean[col].std()
                     
@@ -448,8 +464,14 @@ class DataPreprocessor:
                         df_clean = df_clean[~outlier_mask]
             
             logger.info(f"Data cleaning: {len(df)} -> {len(df_clean)} records")
+            
+            if len(df_clean) < 100:
+                logger.warning(f"Only {len(df_clean)} records remaining after cleaning")
+            
             return df_clean
             
         except Exception as e:
             logger.error(f"Data cleaning failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return df

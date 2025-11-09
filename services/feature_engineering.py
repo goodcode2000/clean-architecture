@@ -432,9 +432,22 @@ class FeatureEngineer:
             # Get feature columns (exclude timestamp and target)
             feature_columns = [col for col in df.columns if col not in ['timestamp', target_column]]
             
-            # Convert to numpy arrays
-            features = df[feature_columns].values
-            targets = df[target_column].values
+            # Ensure all columns are numeric
+            df_numeric = df[feature_columns].copy()
+            for col in df_numeric.columns:
+                if df_numeric[col].dtype == 'object' or df_numeric[col].dtype == 'bool':
+                    df_numeric[col] = pd.to_numeric(df_numeric[col], errors='coerce')
+            
+            # Drop any columns that are still non-numeric
+            df_numeric = df_numeric.select_dtypes(include=[np.number])
+            
+            # Remove any remaining NaN or inf values
+            df_numeric = df_numeric.replace([np.inf, -np.inf], np.nan)
+            df_numeric = df_numeric.fillna(0)
+            
+            # Convert to numpy arrays with explicit float32 dtype
+            features = df_numeric.values.astype(np.float32)
+            targets = df[target_column].values.astype(np.float32)
             
             # Create sequences
             X_sequences = []
@@ -444,8 +457,8 @@ class FeatureEngineer:
                 X_sequences.append(features[i-self.sequence_length:i])
                 y_sequences.append(targets[i])
             
-            X_sequences = np.array(X_sequences)
-            y_sequences = np.array(y_sequences)
+            X_sequences = np.array(X_sequences, dtype=np.float32)
+            y_sequences = np.array(y_sequences, dtype=np.float32)
             
             logger.info(f"Created {len(X_sequences)} sequences for LSTM training")
             logger.info(f"Sequence shape: {X_sequences.shape}")
@@ -454,6 +467,8 @@ class FeatureEngineer:
             
         except Exception as e:
             logger.error(f"Failed to prepare LSTM sequences: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return np.array([]), np.array([])
     
     def get_feature_importance_columns(self) -> List[str]:

@@ -371,7 +371,7 @@ class FeatureEngineer:
             DataFrame with all features added
         """
         try:
-            logger.info("Creating all features for BTC price data...")
+            logger.info("Creating all features for TAO price data...")
             
             # Start with a copy of the original data
             features_df = df.copy()

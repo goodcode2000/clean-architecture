@@ -81,11 +81,19 @@ class EnsemblePredictor:
             features_df = self.feature_engineer.create_all_features(df)
             
             if len(features_df) == 0:
-                logger.error("Feature engineering failed")
+                logger.error("Feature engineering failed - no features created")
                 return {}
+            
+            logger.info(f"Features created successfully: {len(features_df)} rows, {len(features_df.columns)} columns")
             
             # Clean data
             clean_df = self.preprocessor.clean_data_for_training(features_df)
+            
+            if len(clean_df) == 0:
+                logger.error("Feature engineering failed - all data removed during cleaning")
+                return {}
+            
+            logger.info(f"Data cleaning successful: {len(clean_df)} rows remaining")
             
             # Prepare data for different model types
             prepared_data = {
@@ -102,6 +110,8 @@ class EnsemblePredictor:
             
         except Exception as e:
             logger.error(f"Failed to prepare ensemble data: {e}")
+            import traceback
+            logger.error(f"Full traceback:\n{traceback.format_exc()}")
             return {}
     
     def train_individual_models(self, prepared_data: Dict[str, Any]) -> Dict[str, bool]:

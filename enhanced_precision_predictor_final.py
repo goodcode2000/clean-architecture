@@ -539,7 +539,18 @@ class EnhancedBTCPredictor:
                 # 11. Volatility (standard deviation)
                 volatility = np.std(close[max(0, i-19):i+1])
                 feature_vector.append(volatility)
-        
+                
+                # 12. EMAs
+                feature_vector.append(ema_12[i])
+                feature_vector.append(ema_26[i])
+                
+                features.append(feature_vector)
+            
+            return np.array(features)
+            
+        except Exception as e:
+            print(f"⚠️ Technical indicator calculation error: {e}")
+            return None
     
     def train_models(self):
         """Train all models using comprehensive OHLCV and technical indicators"""

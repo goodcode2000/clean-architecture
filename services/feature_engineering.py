@@ -406,20 +406,30 @@ class FeatureEngineer:
             # Only remove rows where critical columns have NaN
             initial_rows = len(features_df)
             
-            # First, forward fill to handle minor gaps
-            features_df = features_df.ffill(limit=5)
+            # Strategy: Preserve maximum data for model training
             
-            # Then remove rows with too many NaN values (>70% of columns)
-            # More lenient to preserve more training data
-            threshold = len(features_df.columns) * 0.3
-            features_df = features_df.dropna(thresh=int(threshold))
+            # Step 1: Forward fill to handle minor gaps (up to 10 periods)
+            features_df = features_df.ffill(limit=10)
             
-            # Fill any remaining NaN values with column means
-            # This ensures no NaN values remain for model training
+            # Step 2: Backward fill for any remaining gaps at the start
+            features_df = features_df.bfill(limit=5)
+            
+            # Step 3: Fill remaining NaN with column-specific strategies
             for col in features_df.columns:
                 if features_df[col].dtype in ['float64', 'float32', 'int64', 'int32']:
                     if features_df[col].isna().any():
-                        features_df[col].fillna(features_df[col].mean(), inplace=True)
+                        # Use median for better robustness to outliers
+                        features_df[col].fillna(features_df[col].median(), inplace=True)
+                elif features_df[col].dtype == 'bool':
+                    # Fill boolean columns with False
+                    features_df[col].fillna(False, inplace=True)
+            
+            # Step 4: Only drop rows if they still have critical NaN values
+            # Check if any row still has NaN after all filling
+            remaining_nan = features_df.isna().sum().sum()
+            if remaining_nan > 0:
+                logger.warning(f"Still have {remaining_nan} NaN values after filling, dropping those rows")
+                features_df = features_df.dropna()
             
             final_rows = len(features_df)
             

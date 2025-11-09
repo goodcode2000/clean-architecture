@@ -1,4 +1,4 @@
-"""TAO price data collection from Coinbase API."""
+"""TAO price data collection from Binance API."""
 import requests
 import pandas as pd
 import time
@@ -13,10 +13,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config.config import Config
 
 class BTCDataCollector:
-    """Collects TAO price data from Coinbase API."""
+    """Collects TAO price data from Binance API."""
     
     def __init__(self):
-        self.coinbase_url = Config.COINBASE_API_URL
+        self.binance_url = Config.BINANCE_API_URL
         self.symbol = Config.SYMBOL
         self.data_dir = Config.DATA_DIR
         self.historical_days = Config.HISTORICAL_DAYS
@@ -25,66 +25,62 @@ class BTCDataCollector:
         # Ensure data directory exists
         os.makedirs(self.data_dir, exist_ok=True)
         
-    def get_coinbase_data(self, start_time: Optional[datetime] = None, end_time: Optional[datetime] = None) -> Optional[pd.DataFrame]:
+    def get_binance_data(self, symbol: str = None, limit: int = 1000) -> Optional[pd.DataFrame]:
         """
-        Fetch TAO price data from Coinbase API.
+        Fetch TAO price data from Binance API.
         
         Args:
-            start_time: Start time for data fetch
-            end_time: End time for data fetch
+            symbol: Trading pair symbol (default: from config)
+            limit: Number of data points to fetch (max 1000)
             
         Returns:
             DataFrame with OHLCV data or None if failed
         """
         try:
-            # Coinbase candles endpoint: /products/{product_id}/candles
-            endpoint = f"{self.coinbase_url}/products/{self.symbol}/candles"
-            
-            # Coinbase granularity in seconds (5 minutes = 300 seconds)
-            granularity = self.interval_minutes * 60
-            
+            if symbol is None:
+                symbol = self.symbol
+                
+            endpoint = f"{self.binance_url}/klines"
             params = {
-                'granularity': granularity
+                'symbol': symbol,
+                'interval': f'{self.interval_minutes}m',
+                'limit': limit
             }
             
-            if start_time:
-                params['start'] = start_time.isoformat()
-            if end_time:
-                params['end'] = end_time.isoformat()
-            
-            logger.info(f"Fetching data from Coinbase: {self.symbol}")
+            logger.info(f"Fetching data from Binance: {symbol}")
             response = requests.get(endpoint, params=params, timeout=10)
             response.raise_for_status()
             
             data = response.json()
             
-            if not data:
-                logger.warning("No data received from Coinbase")
-                return None
-            
-            # Coinbase returns: [time, low, high, open, close, volume]
-            df = pd.DataFrame(data, columns=['timestamp', 'low', 'high', 'open', 'close', 'volume'])
+            # Convert to DataFrame
+            df = pd.DataFrame(data, columns=[
+                'timestamp', 'open', 'high', 'low', 'close', 'volume',
+                'close_time', 'quote_asset_volume', 'number_of_trades',
+                'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
+            ])
             
             # Convert timestamp to datetime
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            df['close_time'] = pd.to_datetime(df['close_time'], unit='ms')
             
             # Convert price columns to float
             price_columns = ['open', 'high', 'low', 'close', 'volume']
             for col in price_columns:
                 df[col] = df[col].astype(float)
             
-            # Reorder columns to match expected format
+            # Keep only necessary columns
             df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
             df = df.sort_values('timestamp').reset_index(drop=True)
             
-            logger.info(f"Successfully fetched {len(df)} records from Coinbase")
+            logger.info(f"Successfully fetched {len(df)} records from Binance")
             return df
             
         except requests.exceptions.RequestException as e:
-            logger.error(f"Coinbase API request failed: {e}")
+            logger.error(f"Binance API request failed: {e}")
             return None
         except Exception as e:
-            logger.error(f"Error processing Coinbase data: {e}")
+            logger.error(f"Error processing Binance data: {e}")
             return None
     
     def get_coingecko_data(self, days: int = 90) -> Optional[pd.DataFrame]:
@@ -151,15 +147,16 @@ class BTCDataCollector:
     
     def get_current_price(self) -> Optional[float]:
         """
-        Get current TAO price from Coinbase API.
+        Get current TAO price from Binance API.
         
         Returns:
             Current TAO price or None if failed
         """
         try:
-            endpoint = f"{self.coinbase_url}/products/{self.symbol}/ticker"
+            endpoint = f"{self.binance_url}/ticker/price"
+            params = {'symbol': self.symbol}
             
-            response = requests.get(endpoint, timeout=5)
+            response = requests.get(endpoint, params=params, timeout=5)
             response.raise_for_status()
             
             data = response.json()
@@ -198,48 +195,79 @@ class BTCDataCollector:
             except Exception as e:
                 logger.warning(f"Failed to load cached data: {e}")
         
-        # Coinbase API can return up to 300 candles per request
-        # For 90 days at 5-minute intervals, we need multiple requests
-        max_candles_per_request = 300
+        # Calculate how many 5-minute intervals we need for 90 days
         intervals_needed = (self.historical_days * 24 * 60) // self.interval_minutes
+        
+        # Binance has a limit of 1000 records per request
+        max_per_request = 1000
         
         all_data = []
         
-        # Calculate number of chunks needed
-        num_chunks = (intervals_needed + max_candles_per_request - 1) // max_candles_per_request
-        
-        logger.info(f"Need {intervals_needed} intervals, fetching in {num_chunks} chunks from Coinbase")
-        
-        # Fetch each chunk going backwards in time
-        end_time = datetime.now()
-        
-        for i in range(num_chunks):
-            # Calculate start time for this chunk
-            chunk_duration_minutes = max_candles_per_request * self.interval_minutes
-            start_time = end_time - timedelta(minutes=chunk_duration_minutes)
+        # Fetch data in chunks if needed
+        if intervals_needed <= max_per_request:
+            df = self.get_binance_data(limit=intervals_needed)
+            if df is not None:
+                all_data.append(df)
+        else:
+            # For more than 1000 intervals, we need multiple requests
+            logger.info(f"Need {intervals_needed} intervals, fetching in chunks from Binance")
             
-            try:
-                logger.info(f"Fetching chunk {i+1}/{num_chunks}: {start_time} to {end_time}")
-                df = self.get_coinbase_data(start_time=start_time, end_time=end_time)
+            # Calculate number of chunks needed
+            num_chunks = (intervals_needed + max_per_request - 1) // max_per_request
+            
+            # Fetch each chunk going backwards in time
+            for i in range(num_chunks):
+                chunk_size = min(max_per_request, intervals_needed - (i * max_per_request))
                 
-                if df is not None and len(df) > 0:
+                # Calculate end time for this chunk (going backwards)
+                minutes_back = i * max_per_request * self.interval_minutes
+                end_time = int((time.time() - (minutes_back * 60)) * 1000)
+                
+                try:
+                    endpoint = f"{self.binance_url}/klines"
+                    params = {
+                        'symbol': self.symbol,
+                        'interval': f'{self.interval_minutes}m',
+                        'limit': chunk_size,
+                        'endTime': end_time
+                    }
+                    
+                    logger.info(f"Fetching chunk {i+1}/{num_chunks}: {chunk_size} records")
+                    response = requests.get(endpoint, params=params, timeout=10)
+                    response.raise_for_status()
+                    
+                    data = response.json()
+                    
+                    # Convert to DataFrame
+                    df = pd.DataFrame(data, columns=[
+                        'timestamp', 'open', 'high', 'low', 'close', 'volume',
+                        'close_time', 'quote_asset_volume', 'number_of_trades',
+                        'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
+                    ])
+                    
+                    # Convert timestamp to datetime
+                    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                    
+                    # Convert price columns to float
+                    price_columns = ['open', 'high', 'low', 'close', 'volume']
+                    for col in price_columns:
+                        df[col] = df[col].astype(float)
+                    
+                    # Keep only necessary columns
+                    df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
+                    
                     all_data.append(df)
-                    logger.info(f"Successfully fetched chunk {i+1}/{num_chunks}: {len(df)} records")
-                else:
-                    logger.warning(f"No data received for chunk {i+1}/{num_chunks}")
+                    logger.info(f"Successfully fetched chunk {i+1}/{num_chunks}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to fetch chunk {i+1}: {e}")
                 
-            except Exception as e:
-                logger.error(f"Failed to fetch chunk {i+1}: {e}")
-            
-            # Move end_time back for next chunk
-            end_time = start_time
-            
-            # Rate limiting - wait between requests
-            time.sleep(0.5)
+                # Rate limiting - wait between requests
+                time.sleep(0.5)
         
-        # If Coinbase failed, try CoinGecko as backup
+        # If Binance failed, try CoinGecko as backup
         if not all_data:
-            logger.warning("Coinbase data collection failed, trying CoinGecko")
+            logger.warning("Binance data collection failed, trying CoinGecko")
             df = self.get_coingecko_data(days=self.historical_days)
             if df is not None:
                 all_data.append(df)
@@ -287,11 +315,8 @@ class BTCDataCollector:
                 # No existing data, fetch historical
                 return self.fetch_historical_data()
             
-            # Get new data since last update (last 24 hours)
-            end_time = datetime.now()
-            start_time = latest_time
-            
-            new_df = self.get_coinbase_data(start_time=start_time, end_time=end_time)
+            # Get new data since last update
+            new_df = self.get_binance_data(limit=100)  # Get last 100 records
             
             if new_df is None:
                 logger.warning("Failed to get new data, using existing")

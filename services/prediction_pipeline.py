@@ -398,6 +398,14 @@ class PredictionPipeline:
                             self.offset_correction.add_prediction_error(
                                 model_name, contrib, actual_price, pred_time
                             )
+                            
+                            # Update model performance for dynamic weights
+                            self.ensemble_model.update_model_performance(
+                                model_name, contrib, actual_price
+                            )
+                        
+                        # Adjust ensemble weights dynamically based on performance
+                        self.ensemble_model.adjust_weights_dynamically()
                         
                         # Update data manager
                         self.data_manager.update_prediction_with_actual(pred_time, actual_price)
@@ -417,6 +425,10 @@ class PredictionPipeline:
             
             # Update offset corrections
             self.offset_correction.update_all_corrections()
+            
+            # Log current ensemble weights
+            current_weights = self.ensemble_model.weights
+            logger.info(f"Current ensemble weights: {[(k, f'{v:.3f}') for k, v in current_weights.items()]}")
             
             # Make new prediction
             prediction_result = self.make_prediction()

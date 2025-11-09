@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-High-Precision BTC Predictor - Target: $20-50 USD accuracy
+Ultra-High-Precision TAO Predictor - Target: $1-5 USD accuracy
 Includes rapid change detection and ultra-short-term predictions
+Uses Coinbase API for TAO-USD price data
+Optimized for Bittensor Subnet 79
 """
 import requests
 import pandas as pd
@@ -29,11 +31,11 @@ class PrecisionBTCPredictor:
         self.predictions = []
         self.current_price = 0
         
-        # Multiple models for different conditions
+        # Multiple models for different conditions - optimized for $1-5 accuracy
         self.models = {
-            'stable': GradientBoostingRegressor(n_estimators=200, learning_rate=0.05, max_depth=6, random_state=42),
-            'volatile': RandomForestRegressor(n_estimators=100, max_depth=8, random_state=42),
-            'rapid': GradientBoostingRegressor(n_estimators=150, learning_rate=0.1, max_depth=4, random_state=42)
+            'stable': GradientBoostingRegressor(n_estimators=300, learning_rate=0.03, max_depth=8, random_state=42),
+            'volatile': RandomForestRegressor(n_estimators=200, max_depth=10, random_state=42),
+            'rapid': GradientBoostingRegressor(n_estimators=250, learning_rate=0.05, max_depth=6, random_state=42)
         }
         
         self.scalers = {
@@ -49,9 +51,10 @@ class PrecisionBTCPredictor:
         self.volatility_threshold = 0.002  # 0.2% for rapid detection
         self.rapid_change_threshold = 0.001  # 0.1% for ultra-sensitive detection
         
-        # Accuracy tracking
-        self.target_accuracy = 50  # $50 USD max error
+        # Accuracy tracking - Ultra-high precision target
+        self.target_accuracy = 5  # $5 USD max error
         self.recent_errors = []
+        self.ultra_precision_mode = True
         
         os.makedirs('data', exist_ok=True)
         self.setup_routes()
@@ -64,8 +67,9 @@ class PrecisionBTCPredictor:
             return jsonify({
                 "status": "healthy",
                 "timestamp": datetime.now().isoformat(),
-                "version": "2.0.0-precision",
-                "target_accuracy": "$20-50 USD"
+                "version": "3.0.0-ultra-precision",
+                "target_accuracy": "$1-5 USD",
+                "optimized_for": "Bittensor Subnet 79"
             })
         
         @self.app.route('/api/current-price')
@@ -80,21 +84,23 @@ class PrecisionBTCPredictor:
         def latest_prediction():
             if self.predictions:
                 latest = self.predictions[-1].copy()
-                latest['target_accuracy'] = "$20-50 USD"
+                latest['target_accuracy'] = "$1-5 USD"
                 latest['market_state'] = self.market_state
+                latest['ultra_precision'] = True
                 return jsonify(latest)
             return jsonify({"error": "No predictions available"})
         
         @self.app.route('/api/prediction-history')
         def prediction_history():
             recent_preds = self.predictions[-20:]
-            accurate_preds = [p for p in recent_preds if 'error' in p and p['error'] <= 50]
+            accurate_preds = [p for p in recent_preds if 'error' in p and p['error'] <= 5]
             
             return jsonify({
                 "predictions": recent_preds,
                 "total": len(self.predictions),
                 "accurate_predictions": len(accurate_preds),
-                "accuracy_rate": f"{(len(accurate_preds)/len(recent_preds)*100):.1f}%" if recent_preds else "0%"
+                "accuracy_rate": f"{(len(accurate_preds)/len(recent_preds)*100):.1f}%" if recent_preds else "0%",
+                "target_accuracy": "$1-5 USD"
             })
         
         @self.app.route('/api/historical-data')
@@ -117,34 +123,38 @@ class PrecisionBTCPredictor:
                 "predictions_made": len(self.predictions),
                 "market_state": self.market_state,
                 "average_error_usd": round(avg_error, 2),
-                "target_met": avg_error <= 50 if self.recent_errors else False,
+                "target_met": avg_error <= 5 if self.recent_errors else False,
+                "target_accuracy": "$1-5 USD",
                 "last_update": datetime.now().isoformat()
             })
     
     def fetch_btc_price_high_freq(self):
-        """Fetch BTC price every minute for high precision"""
+        """Fetch TAO price every minute for high precision"""
         try:
-            # Get detailed price data
-            url = "https://api.binance.com/api/v3/klines"
+            # Get detailed price data from Coinbase
+            url = "https://api.exchange.coinbase.com/products/TAO-USD/candles"
             params = {
-                "symbol": "BTCUSDT",
-                "interval": "1m",
-                "limit": 1
+                "granularity": 60  # 1 minute in seconds
             }
             response = requests.get(url, params=params, timeout=5)
             
             if response.status_code == 200:
-                data = response.json()[0]
-                
-                price_data = {
-                    "timestamp": datetime.now().isoformat(),
-                    "open": float(data[1]),
-                    "high": float(data[2]),
-                    "low": float(data[3]),
-                    "close": float(data[4]),
-                    "volume": float(data[5]),
-                    "unix_time": int(datetime.now().timestamp())
-                }
+                data = response.json()
+                if data and len(data) > 0:
+                    # Coinbase returns: [time, low, high, open, close, volume]
+                    candle = data[0]
+                    
+                    price_data = {
+                        "timestamp": datetime.now().isoformat(),
+                        "open": float(candle[3]),
+                        "high": float(candle[2]),
+                        "low": float(candle[1]),
+                        "close": float(candle[4]),
+                        "volume": float(candle[5]),
+                        "unix_time": int(datetime.now().timestamp())
+                    }
+                else:
+                    return False
                 
                 self.price_history.append(price_data)
                 self.current_price = price_data['close']
@@ -153,10 +163,14 @@ class PrecisionBTCPredictor:
                 if len(self.price_history) > 1000:
                     self.price_history = self.price_history[-1000:]
                 
+                # Save price history to CSV periodically (every 10 minutes)
+                if len(self.price_history) % 10 == 0:
+                    self.save_price_history()
+                
                 # Detect market conditions
                 self.detect_market_conditions()
                 
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] BTC: ${self.current_price:,.2f} | State: {self.market_state}")
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] TAO: ${self.current_price:,.2f} | State: {self.market_state}")
                 return True
             else:
                 print(f"Error fetching price: {response.status_code}")
@@ -366,12 +380,12 @@ class PrecisionBTCPredictor:
             # Make prediction
             predicted_price = self.models[model_type].predict(features_scaled)[0]
             
-            # Calculate precision confidence interval (tighter bounds)
+            # Calculate ultra-precision confidence interval (very tight bounds)
             if len(self.recent_errors) > 5:
                 recent_mae = np.mean(self.recent_errors[-10:])
-                confidence_margin = min(recent_mae * 1.2, 30)  # Cap at $30
+                confidence_margin = min(recent_mae * 1.1, 5)  # Cap at $5 for ultra-precision
             else:
-                confidence_margin = 25  # Default $25 margin
+                confidence_margin = 3  # Default $3 margin for ultra-precision
             
             confidence_lower = predicted_price - confidence_margin
             confidence_upper = predicted_price + confidence_margin
@@ -420,14 +434,14 @@ class PrecisionBTCPredictor:
                     
                     prediction['error'] = round(error, 2)
                     prediction['error_percentage'] = round((error / self.current_price) * 100, 4)
-                    prediction['target_met'] = error <= 50
+                    prediction['target_met'] = error <= 5
                     
                     # Track recent errors
                     self.recent_errors.append(error)
                     if len(self.recent_errors) > 50:
                         self.recent_errors = self.recent_errors[-50:]
                     
-                    status = "✅ TARGET MET" if error <= 50 else "❌ TARGET MISSED"
+                    status = "✅ TARGET MET" if error <= 5 else "❌ TARGET MISSED"
                     print(f"📊 Accuracy: ${error:.2f} USD error | {status}")
     
     def save_predictions(self):
@@ -438,6 +452,27 @@ class PrecisionBTCPredictor:
                 df.to_csv('data/predictions.csv', index=False)
         except Exception as e:
             print(f"Error saving predictions: {e}")
+    
+    def save_price_history(self):
+        """Save price history to CSV"""
+        try:
+            if self.price_history:
+                df = pd.DataFrame(self.price_history)
+                df.to_csv('data/tao_price_history.csv', index=False)
+        except Exception as e:
+            print(f"Error saving price history: {e}")
+    
+    def load_price_history(self):
+        """Load price history from CSV on startup"""
+        try:
+            if os.path.exists('data/tao_price_history.csv'):
+                df = pd.read_csv('data/tao_price_history.csv')
+                self.price_history = df.to_dict('records')
+                print(f"✅ Loaded {len(self.price_history)} historical price records")
+                return True
+        except Exception as e:
+            print(f"Could not load price history: {e}")
+        return False
     
     def precision_loop(self):
         """Main high-precision prediction loop"""
@@ -482,9 +517,10 @@ class PrecisionBTCPredictor:
     def run(self):
         """Start the precision prediction system"""
         print("="*70)
-        print("🎯 HIGH-PRECISION BTC PREDICTOR STARTING 🎯")
+        print("🎯 ULTRA-HIGH-PRECISION TAO PREDICTOR STARTING 🎯")
         print("="*70)
-        print("🎯 Target Accuracy: $20-50 USD")
+        print("🎯 Target Accuracy: $1-5 USD (Ultra-Precision Mode)")
+        print("🔗 Optimized for: Bittensor Subnet 79")
         print("⚡ Prediction Interval: 2 minutes")
         print("📊 Data Collection: 1-minute intervals")
         print("🤖 Models: Stable/Volatile/Rapid conditions")

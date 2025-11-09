@@ -6,11 +6,11 @@ load_dotenv()
 
 class Config:
     # API Configuration
-    COINBASE_API_URL = "https://api.exchange.coinbase.com"
+    BINANCE_API_URL = "https://api.binance.com/api/v3"
     COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
     
     # Data Configuration
-    SYMBOL = "TAO-USD"  # TAO/USD trading pair
+    SYMBOL = "TAOUSDT"  # TAO/USDT trading pair on Binance
     DATA_INTERVAL_MINUTES = 5
     HISTORICAL_DAYS = 90
     PREDICTION_HORIZON_MINUTES = 5
@@ -65,6 +65,15 @@ class Config:
     LOGS_DIR = "logs"
     PREDICTIONS_FILE = "data/predictions.csv"
     HISTORICAL_DATA_FILE = "data/tao_historical.csv"
+    
+    # Data Quality Settings
+    MAX_NAN_PERCENTAGE = 0.3  # Maximum 30% NaN values per row
+    FORWARD_FILL_LIMIT = 10  # Forward fill up to 10 periods
+    USE_MEAN_FILL = True  # Fill remaining NaN with column means
+    
+    # Data Quality Settings
+    MIN_TRAINING_SAMPLES = 1000  # Minimum samples needed for training
+    MAX_NAN_PERCENTAGE = 0.3  # Maximum 30% NaN values allowed per row
     
     # GPU Configuration
     USE_GPU = True

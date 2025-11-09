@@ -127,25 +127,82 @@ class EnsemblePredictor:
         training_results = {}
         
         try:
+            # Verify we have enough data
+            if len(prepared_data['clean_df']) < 100:
+                logger.error(f"Insufficient data for training: only {len(prepared_data['clean_df'])} samples")
+                return {name: False for name in self.models.keys()}
+            
+            logger.info(f"Training models with {len(prepared_data['clean_df'])} samples")
+            
             # Train ETS model
-            logger.info("Training ETS model...")
-            training_results['ets'] = self.models['ets'].train(prepared_data['ets_data'])
+            try:
+                logger.info("Training ETS model...")
+                training_results['ets'] = self.models['ets'].train(prepared_data['ets_data'])
+                if training_results['ets']:
+                    logger.info("✅ ETS model trained successfully")
+                else:
+                    logger.warning("❌ ETS model training failed")
+            except Exception as e:
+                logger.error(f"❌ ETS model training error: {e}")
+                training_results['ets'] = False
             
             # Train SVR model
-            logger.info("Training SVR model...")
-            training_results['svr'] = self.models['svr'].train(prepared_data['sklearn_data'], optimize_params=False)
+            try:
+                logger.info("Training SVR model...")
+                training_results['svr'] = self.models['svr'].train(prepared_data['sklearn_data'], optimize_params=False)
+                if training_results['svr']:
+                    logger.info("✅ SVR model trained successfully")
+                else:
+                    logger.warning("❌ SVR model training failed")
+            except Exception as e:
+                logger.error(f"❌ SVR model training error: {e}")
+                training_results['svr'] = False
+            
+            # Train Kalman model
+            try:
+                logger.info("Training Kalman model...")
+                training_results['kalman'] = self.models['kalman'].train(prepared_data['sklearn_data'])
+                if training_results['kalman']:
+                    logger.info("✅ Kalman model trained successfully")
+                else:
+                    logger.warning("❌ Kalman model training failed")
+            except Exception as e:
+                logger.error(f"❌ Kalman model training error: {e}")
+                training_results['kalman'] = False
             
             # Train Random Forest model
-            logger.info("Training Random Forest model...")
-            training_results['random_forest'] = self.models['random_forest'].train(prepared_data['sklearn_data'], optimize_params=False)
+            try:
+                logger.info("Training Random Forest model...")
+                training_results['random_forest'] = self.models['random_forest'].train(prepared_data['sklearn_data'], optimize_params=False)
+                if training_results['random_forest']:
+                    logger.info("✅ Random Forest model trained successfully")
+                else:
+                    logger.warning("❌ Random Forest model training failed")
+            except Exception as e:
+                logger.error(f"❌ Random Forest model training error: {e}")
+                training_results['random_forest'] = False
             
             # Train XGBoost model (using Random Forest as placeholder)
-            logger.info("Training XGBoost model...")
-            training_results['xgboost'] = self.models['xgboost'].train(prepared_data['sklearn_data'], optimize_params=False)
+            try:
+                logger.info("Training XGBoost model...")
+                training_results['xgboost'] = self.models['xgboost'].train(prepared_data['sklearn_data'], optimize_params=False)
+                if training_results['xgboost']:
+                    logger.info("✅ XGBoost model trained successfully")
+                else:
+                    logger.warning("❌ XGBoost model training failed")
+            except Exception as e:
+                logger.error(f"❌ XGBoost model training error: {e}")
+                training_results['xgboost'] = False
             
             # Train LSTM model
-            logger.info("Training LSTM model...")
-            training_results['lstm'] = self.models['lstm'].train(prepared_data['lstm_data'])
+            try:
+                logger.info("Training LSTM model...")
+                training_results['lstm'] = self.models['lstm'].train(prepared_data['lstm_data'])
+                if training_results['lstm']:
+                    logger.info("✅ LSTM model trained successfully")
+                else:
+                    logger.warning("❌ LSTM model training failed")
+            except Exception as e:
             
             # Log training results
             successful_models = [name for name, success in training_results.items() if success]

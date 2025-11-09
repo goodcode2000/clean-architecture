@@ -22,7 +22,7 @@ class CSVDataProvider:
         self.projects = {
             'btc-main72': {
                 'name': 'BTC Main72 Project',
-                'data_path': '/home/ubuntu/BTC/main72/clean-architecture/data',
+                'data_path': '/home/ubuntu/BTC/main72_origin/clean-architecture/data',
                 'files': {
                     'historical_real': 'historical_real.csv',
                     'predictions': 'predictions.csv'
@@ -307,5 +307,5 @@ if __name__ == '__main__':
     print("🔗 Available projects:", list(provider.projects.keys()))
     print("="*60)
     
-    # Start server on port 9000 to avoid conflicts
-    app.run(host='0.0.0.0', port=9000, debug=False)
+    # Start server on port 8001 to avoid conflicts
+    app.run(host='0.0.0.0', port=8001, debug=False)

@@ -22,7 +22,7 @@ class CSVDataProvider:
         self.projects = {
             'btc-main72': {
                 'name': 'BTC Main72 Project',
-                'data_path': '/home/ubuntu/BTC/main72/clean-architecture/data',
+                'data_path': '/home/ubuntu/new/BTC2/encore/data',
                 'files': {
                     'historical_real': 'historical_real.csv',
                     'predictions': 'predictions.csv'
@@ -117,7 +117,15 @@ class CSVDataProvider:
             return None, error
         
         # Convert timestamp column to datetime for filtering
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        # Handle both old format (timestamp) and new format (generated_at, target_time)
+        if 'generated_at' in df.columns:
+            df['timestamp'] = pd.to_datetime(df['generated_at'])
+            df['prediction_for_time'] = pd.to_datetime(df['target_time']) if 'target_time' in df.columns else df['timestamp']
+        elif 'timestamp' in df.columns:
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df['prediction_for_time'] = pd.to_datetime(df['prediction_for_time']) if 'prediction_for_time' in df.columns else df['timestamp']
+        else:
+            return None, "No timestamp column found in predictions CSV"
         
         # Calculate 24 hours ago from the latest prediction
         if len(df) > 0:
@@ -145,7 +153,17 @@ class CSVDataProvider:
                 "predicted_price": float(row['predicted_price'])
             }
             
+            # Add prediction_for_time if available
+            if 'prediction_for_time' in row and pd.notna(row['prediction_for_time']):
+                pred_data['prediction_for_time'] = row['prediction_for_time'].isoformat()
+            
             # Add optional fields if they exist
+            if 'created_at' in row and pd.notna(row['created_at']):
+                pred_data['created_at'] = pd.to_datetime(row['created_at']).isoformat()
+            if 'target_time' in row and pd.notna(row['target_time']):
+                pred_data['target_time'] = pd.to_datetime(row['target_time']).isoformat()
+            if 'prediction_for_time' in row and pd.notna(row['prediction_for_time']):
+                pred_data['prediction_for_time'] = pd.to_datetime(row['prediction_for_time']).isoformat()
             if 'current_price' in row:
                 pred_data['current_price'] = float(row['current_price'])
             if 'model' in row:
@@ -308,4 +326,4 @@ if __name__ == '__main__':
     print("="*60)
     
     # Start server on port 9000 to avoid conflicts
-    app.run(host='0.0.0.0', port=9000, debug=False)
+    app.run(host='0.0.0.0', port=8003, debug=False)

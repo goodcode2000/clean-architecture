@@ -5,13 +5,13 @@ Add new projects here to expand the service
 
 # Server configuration
 SERVER_HOST = '0.0.0.0'
-SERVER_PORT = 9000
+SERVER_PORT = 8003
 
 # Project configurations
 PROJECTS = {
     'btc-main72': {
         'name': 'BTC Main72 Project',
-        'data_path': '/home/ubuntu/BTC/main72/clean-architecture/data',
+        'data_path': '/home/ubuntu/new/BTC2/encore/data',
         'files': {
             'historical_real': 'historical_real.csv',
             'predictions': 'predictions.csv'

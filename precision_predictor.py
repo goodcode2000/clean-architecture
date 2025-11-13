@@ -28,6 +28,7 @@ class PrecisionBTCPredictor:
         self.price_history = []
         self.predictions = []
         self.current_price = 0
+        self.initial_data_loaded = False
         
         # Multiple models for different conditions
         self.models = {
@@ -121,6 +122,52 @@ class PrecisionBTCPredictor:
                 "last_update": datetime.now().isoformat()
             })
     
+    def fetch_historical_data(self, limit=2000):
+        """Fetch historical BTC price data at startup"""
+        try:
+            print(f"📥 Downloading {limit} historical data points...")
+            url = "https://api.binance.com/api/v3/klines"
+            params = {
+                "symbol": "BTCUSDT",
+                "interval": "1m",
+                "limit": limit
+            }
+            response = requests.get(url, params=params, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                for candle in data:
+                    price_data = {
+                        "timestamp": datetime.fromtimestamp(candle[0] / 1000).isoformat(),
+                        "open": float(candle[1]),
+                        "high": float(candle[2]),
+                        "low": float(candle[3]),
+                        "close": float(candle[4]),
+                        "volume": float(candle[5]),
+                        "unix_time": int(candle[0] / 1000)
+                    }
+                    self.price_history.append(price_data)
+                
+                self.current_price = self.price_history[-1]['close']
+                self.initial_data_loaded = True
+                
+                print(f"✅ Downloaded {len(self.price_history)} data points")
+                print(f"📊 Data range: {self.price_history[0]['timestamp']} to {self.price_history[-1]['timestamp']}")
+                print(f"💰 Current BTC Price: ${self.current_price:,.2f}")
+                
+                # Detect initial market conditions
+                self.detect_market_conditions()
+                
+                return True
+            else:
+                print(f"❌ Error fetching historical data: {response.status_code}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error fetching historical data: {e}")
+            return False
+    
     def fetch_btc_price_high_freq(self):
         """Fetch BTC price every minute for high precision"""
         try:
@@ -149,9 +196,9 @@ class PrecisionBTCPredictor:
                 self.price_history.append(price_data)
                 self.current_price = price_data['close']
                 
-                # Keep only last 1000 data points (about 16 hours)
-                if len(self.price_history) > 1000:
-                    self.price_history = self.price_history[-1000:]
+                # Keep only last 2000 data points
+                if len(self.price_history) > 2000:
+                    self.price_history = self.price_history[-2000:]
                 
                 # Detect market conditions
                 self.detect_market_conditions()
@@ -282,18 +329,18 @@ class PrecisionBTCPredictor:
     def train_precision_models(self):
         """Train models for different market conditions"""
         if len(self.price_history) < 100:
-            print("Need at least 100 data points for precision training")
+            print("⚠️ Need at least 100 data points for precision training")
             return False
         
         try:
-            print("Training precision models...")
+            print("🤖 Training precision models...")
             
             # Prepare training data for each market condition
             for condition in ['stable', 'volatile', 'rapid']:
                 X_train = []
                 y_train = []
                 
-                # Create training samples
+                # Create training samples (predict 1 minute ahead)
                 for i in range(30, len(self.price_history) - 1):
                     window = self.price_history[:i+1]
                     features = self.create_precision_features(window)
@@ -301,7 +348,7 @@ class PrecisionBTCPredictor:
                     if features is not None:
                         # Determine if this sample matches the condition
                         current_data = self.price_history[i]
-                        next_data = self.price_history[i+1]
+                        next_data = self.price_history[i+1]  # 1 minute ahead
                         
                         # Calculate change for condition matching
                         price_change = abs((next_data['close'] - current_data['close']) / current_data['close'])
@@ -336,7 +383,7 @@ class PrecisionBTCPredictor:
             return any(self.models_trained.values())
             
         except Exception as e:
-            print(f"Error training models: {e}")
+            print(f"❌ Error training models: {e}")
             return False
     
     def make_precision_prediction(self):
@@ -383,7 +430,7 @@ class PrecisionBTCPredictor:
                 "predicted_price": round(predicted_price, 2),
                 "confidence_lower": round(confidence_lower, 2),
                 "confidence_upper": round(confidence_upper, 2),
-                "prediction_for": (datetime.now() + timedelta(minutes=2)).isoformat(),  # 2-minute prediction
+                "prediction_for": (datetime.now() + timedelta(minutes=1)).isoformat(),  # 1-minute prediction
                 "model_used": model_type,
                 "market_state": self.market_state,
                 "confidence_margin": round(confidence_margin, 2)
@@ -413,8 +460,8 @@ class PrecisionBTCPredictor:
             if 'actual_price' not in prediction:
                 pred_time = datetime.fromisoformat(prediction['timestamp'].replace('Z', '+00:00').replace('+00:00', ''))
                 
-                # Check if 2 minutes have passed
-                if current_time - pred_time >= timedelta(minutes=2):
+                # Check if 1 minute has passed
+                if current_time - pred_time >= timedelta(minutes=1):
                     prediction['actual_price'] = self.current_price
                     error = abs(prediction['predicted_price'] - self.current_price)
                     
@@ -444,6 +491,19 @@ class PrecisionBTCPredictor:
         print("🎯 Starting High-Precision BTC Predictor...")
         print("Target Accuracy: $20-50 USD")
         
+        # Load historical data at startup
+        if not self.initial_data_loaded:
+            print("\n" + "="*70)
+            if self.fetch_historical_data(2000):
+                print("="*70 + "\n")
+                # Train models immediately with historical data
+                if self.train_precision_models():
+                    print("✅ Models ready for predictions!\n")
+                else:
+                    print("⚠️ Model training failed, will retry...\n")
+            else:
+                print("⚠️ Failed to load historical data, starting fresh...\n")
+        
         minute_counter = 0
         
         while True:
@@ -451,14 +511,13 @@ class PrecisionBTCPredictor:
                 # Fetch price every minute
                 if self.fetch_btc_price_high_freq():
                     
-                    # Train models initially and periodically
-                    if not any(self.models_trained.values()) and len(self.price_history) >= 100:
-                        self.train_precision_models()
-                    elif minute_counter % 60 == 0 and len(self.price_history) >= 100:  # Retrain hourly
+                    # Retrain models hourly
+                    if minute_counter % 60 == 0 and minute_counter > 0 and len(self.price_history) >= 100:
+                        print("\n🔄 Retraining models with latest data...")
                         self.train_precision_models()
                     
-                    # Make prediction every 2 minutes
-                    if minute_counter % 2 == 0 and any(self.models_trained.values()):
+                    # Make prediction every minute
+                    if any(self.models_trained.values()):
                         self.make_precision_prediction()
                         self.update_precision_accuracy()
                     
@@ -468,10 +527,10 @@ class PrecisionBTCPredictor:
                 time.sleep(60)
                 
             except KeyboardInterrupt:
-                print("Stopping precision predictor...")
+                print("\n⏹️ Stopping precision predictor...")
                 break
             except Exception as e:
-                print(f"Error in precision loop: {e}")
+                print(f"❌ Error in precision loop: {e}")
                 time.sleep(30)
     
     def start_api_server(self):
@@ -485,8 +544,9 @@ class PrecisionBTCPredictor:
         print("🎯 HIGH-PRECISION BTC PREDICTOR STARTING 🎯")
         print("="*70)
         print("🎯 Target Accuracy: $20-50 USD")
-        print("⚡ Prediction Interval: 2 minutes")
+        print("⚡ Prediction Interval: 1 minute")
         print("📊 Data Collection: 1-minute intervals")
+        print("📥 Initial Data: 2000 historical points")
         print("🤖 Models: Stable/Volatile/Rapid conditions")
         print("="*70)
         
